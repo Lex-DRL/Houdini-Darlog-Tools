@@ -1,0 +1,2 @@
+# Auto-detect text/binary by default:
+* 	text=auto eol=lf
