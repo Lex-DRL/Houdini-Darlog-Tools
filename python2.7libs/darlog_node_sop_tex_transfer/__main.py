@@ -28,18 +28,21 @@ _channels_keys = (
 	'pbr',
 	'nm',
 )
-channel_labels = {
-	'color': 'Base Color',
-	'alpha': 'Base Alpha',
-	'colorAlpha': 'Base Color+Alpha',
-	'em': 'Emission',
-	'metal': 'Metallic',
-	'smooth': 'Smoothness',
-	'metalSmooth': 'Metal+Smooth',
-	'ao': 'AO',
-	'pbr': 'PBR',
-	'nm': 'Normal Map',
-}
+
+
+def channel_labels():
+	return {
+		'color': 'Base Color',
+		'alpha': 'Base Alpha',
+		'colorAlpha': 'Base Color+Alpha',
+		'em': 'Emission',
+		'metal': 'Metallic',
+		'smooth': 'Smoothness',
+		'metalSmooth': 'Metal+Smooth',
+		'ao': 'AO',
+		'pbr': 'PBR',
+		'nm': 'Normal Map',
+	}
 
 
 def channels_dict(val):
@@ -216,6 +219,7 @@ class ChannelsPerModeBlock:
 
 	def main(
 		self,
+		channel_labels_dict,    # type: _t.Dict[str, str]
 		main_data_dict,  # type: dict
 		src_ch_dict=None,  # type: _t.Dict[str, str]
 		trg_ch_dict=None,  # type: _t.Dict[str, str]
@@ -239,7 +243,7 @@ class ChannelsPerModeBlock:
 			if not (key in src_required_ch or key in trg_required_ch):
 				continue
 
-			nice_nm = channel_labels.get(key, key)
+			nice_nm = channel_labels_dict.get(key, key)
 			src_nm = test_name(
 				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel'
 			)
@@ -262,6 +266,7 @@ class InputProcessor:
 		self.attr_test_all_types = AttribFuncsPerGeo(geo).attr_test
 		self.attr_test_uv = AttribFuncsPerGeo(geo, (hou.attribType.Vertex, hou.attribType.Point)).attr_test
 
+		self.channel_labels = channel_labels()
 		self.data_dict = out_dict_init()
 
 	def __repr__(self):
@@ -328,7 +333,7 @@ class InputProcessor:
 					ChannelParams('3', "../mask{}_3_src".format(i), "../mask{}_3_trg".format(i)),
 					ChannelParams('4', "../mask{}_4_src".format(i), "../mask{}_4_trg".format(i)),
 				)
-			).main(self.data_dict, src_ch_dict=out_dict['srcCh'], trg_ch_dict=out_dict['trgCh'])
+			).main(self.channel_labels, self.data_dict, src_ch_dict=out_dict['srcCh'], trg_ch_dict=out_dict['trgCh'])
 			if out_dict['out_mode'] > 0:
 				masks_list.append(out_dict)
 
@@ -353,7 +358,7 @@ class InputProcessor:
 				ChannelParams('metalSmooth', "../metalSmooth_src", "../metalSmooth_trg"),
 				ChannelParams('pbr', "../pbr_src", "../pbr_trg"),
 			)
-		).main(self.data_dict)
+		).main(self.channel_labels, self.data_dict)
 		data_dict_modes['invertSmooth'] = bool(hou.evalParm("../smoothTex_invert"))
 
 	def _main_base_color_channels(self):
@@ -373,7 +378,7 @@ class InputProcessor:
 				ChannelParams('alpha', "../baseAlpha_src", "../baseAlpha_trg"),
 				ChannelParams('colorAlpha', "../baseColorAlpha_src", "../baseColorAlpha_trg"),
 			)
-		).main(self.data_dict)
+		).main(self.channel_labels, self.data_dict)
 
 	def _main_on_off_channels(self):
 		for key, do_parm, src_parm, trg_parm in [
@@ -384,7 +389,7 @@ class InputProcessor:
 			if not chan_do:
 				continue
 
-			nice_nm = channel_labels.get(key, key)
+			nice_nm = self.channel_labels.get(key, key)
 			src_name = test_name(
 				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel'
 			)
@@ -410,7 +415,7 @@ class InputProcessor:
 			assert 'trgCh' in mask_data and isinstance(mask_data['trgCh'], dict)
 			for ch_key, ch_val in mask_data['trgCh'].items():
 				full_ch_key = '{}_{}'.format(main_key, ch_key)
-				channel_labels[full_ch_key] = mask_label(main_label, ch_key)
+				self.channel_labels[full_ch_key] = mask_label(main_label, ch_key)
 				all_trg_ch[full_ch_key] = ch_val
 
 		seen = dict()
@@ -418,7 +423,7 @@ class InputProcessor:
 			assert isinstance(key, str) and isinstance(ch, str)
 			if not ch:
 				continue
-			ch_label = channel_labels.get(key, key)
+			ch_label = self.channel_labels.get(key, key)
 			if ch in seen:
 				raise hou.NodeError("{ch} channel can't be used for multiple outputs: {o1}, {o2}".format(
 					ch=repr(ch), o1=seen[ch], o2=ch_label
