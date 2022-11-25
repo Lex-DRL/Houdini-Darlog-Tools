@@ -13,6 +13,9 @@ try:
 	_O = _t.Optional
 	_U = _t.Union
 
+	# noinspection PyTypeHints
+	_T = _t.TypeVar('T')
+
 	_t_attr_getter = _t.Callable[[str], hou.Attrib]
 	_t_at_arg = _O[_U[_t.Sequence[hou.attribType], hou.attribType]]
 	_t_dt_arg = _O[_U[_t.Iterable[hou.attribData], hou.attribData]]
@@ -67,6 +70,11 @@ def _test_name_fixed_reserved_set(
 	default_name_always_ok=False  # type: bool
 ):  # type: (...) -> str
 	"""Test name for an entity (attribute/parm)."""
+	if not isinstance(name, _str_types):
+		raise hou.NodeError("Name for {nice}{entity} must be a string".format(
+			nice=format_prefix(error_attr_nice_nm), entity=entity_type
+		))
+
 	names = name.split()
 	name = names[0] if names else default_name
 	if default_name_always_ok and name == default_name:
@@ -458,3 +466,40 @@ class AttribFuncsPerGeo:
 		_test_attr_sz(attr, sizes, error_attr_nice_nm=error_attr_nice_nm)
 
 		return attr
+
+
+def assert_arg_type(val, _class):  # type: (_t.Any, _t.Type[_T]) -> _T
+	if not isinstance(val, _class):
+		raise TypeError("Not a {{{}}}: {}".format(_class.__name__, repr(val)))
+	return val
+
+
+def assert_str(val):  # type: (...) -> str
+	if not isinstance(val, _str_types):
+		raise TypeError("Not a string: {}".format(repr(val)))
+	return val
+
+
+class NodeGeoProcessorBase(object):
+	"""
+	A base class to build per-asset input processors.
+	Implements nothing but two properties (`node` and `geo`) which error-check
+	that a valid `SopNode`/`Geometry` instances are returned.
+	"""
+	def __init__(
+		self,
+		node,  # type: hou.SopNode
+	):
+		self.__node = node
+		self.__geo = None
+
+	@property
+	def node(self):
+		return assert_arg_type(self.__node, hou.SopNode)  # type: hou.SopNode
+
+	@property
+	def geo(self):
+		geo = self.__geo
+		if geo is None:
+			self.__geo = geo = assert_arg_type(self.node.geometry(), hou.Geometry)  # type: hou.Geometry
+		return geo

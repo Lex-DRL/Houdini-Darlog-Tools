@@ -11,6 +11,14 @@ from collections import OrderedDict
 from itertools import chain as _chain
 from json import dumps, loads
 
+from darlog_hou.attributes import (
+	NodeGeoProcessorBase,
+	AttribFuncsPerGeo,
+	test_name_no_reserved,
+	test_name_factory,
+	assert_str
+)
+
 try:
 	import typing as _t
 
@@ -62,19 +70,7 @@ def _is_attr_matching_vector(attr_pattern_str, attr):  # type: (str, hou.Attrib)
 	)
 
 
-def _assert_arg_type(val, _class):  # type: (_t.Any, _t.Type[_T]) -> _T
-	if not isinstance(val, _class):
-		raise TypeError("Not a {{{}}}: {}".format(_class.__name__, repr(val)))
-	return val
-
-
-def _assert_str(val):  # type: (...) -> str
-	if not isinstance(val, _str_types):
-		raise TypeError("Not a string: {}".format(repr(val)))
-	return val
-
-
-class InputProcessorParm:
+class InputProcessorParm(NodeGeoProcessorBase):
 	def __init__(
 		self,
 		node,  # type: hou.SopNode
@@ -82,20 +78,8 @@ class InputProcessorParm:
 		dir_vectors_pattern,  # type: str
 		nrm_vectors_pattern,  # type: str
 	):
-		self.__node = node
-		self.__geo = None
+		super(InputProcessorParm, self).__init__(node)
 		self.vector_patterns = (pos_vectors_pattern, dir_vectors_pattern, nrm_vectors_pattern)
-
-	@property
-	def node(self):
-		return _assert_arg_type(self.__node, hou.SopNode)  # type: hou.SopNode
-
-	@property
-	def geo(self):
-		geo = self.__geo
-		if geo is None:
-			self.__geo = geo = _assert_arg_type(self.node.geometry(), hou.Geometry)  # type: hou.Geometry
-		return geo
 
 	def _matching_vector_attribs(self, attr_pattern_str):
 		def filter_attrs(attrs):  # type: (_t.Iterable[hou.Attrib]) -> _t.List[str]
@@ -118,7 +102,7 @@ class InputProcessorParm:
 	def _data_dict_populate(self, out_dict):  # type: (dict) -> ...
 		for vector_tp, attr_pattern in zip(
 			_vector_types,
-			(_assert_str(x) for x in self.vector_patterns)
+			(assert_str(x) for x in self.vector_patterns)
 		):
 			out_dict.update(
 				('{}_{}'.format(attr_tp, vector_tp), attrs)
@@ -174,3 +158,39 @@ def vex_xform_for_attr_type(
 	if not attr_set_lines:
 		return ''
 	return _vex_section_separator.join([vex_common, attr_set_lines])
+
+
+_required_fbx_pt_attribs = (
+	"P",
+	"fbx_translation",
+	"fbx_rotation",
+	"fbx_scale",
+)
+_test_obj_name = test_name_factory(*_required_fbx_pt_attribs)
+
+
+class InputProcessorPythonNode(NodeGeoProcessorBase):
+	def __init__(
+		self,
+		node,  # type: hou.SopNode
+		name_attr,  # type: str
+		json_str,  # type: str
+	):
+		super(InputProcessorPythonNode, self).__init__(node)
+		self.name_attr = name_attr
+		self.json_str = json_str
+
+	def main(self):
+		json_data = loads(assert_str(self.json_str))
+		if json_data['is_error']:
+			raise hou.NodeError(json_data['error'])
+
+		geo = self.geo
+		pt_attr_checker = AttribFuncsPerGeo(geo, hou.attribType.Point)
+		for required_pt_attr in _required_fbx_pt_attribs:
+			pt_attr_checker.attr_test(required_pt_attr, hou.attribData.Float, 3, test_name_f=test_name_no_reserved)
+
+		AttribFuncsPerGeo(geo, hou.attribType.Prim).attr_test(
+			self.name_attr, hou.attribData.String, 1,
+			error_attr_nice_nm='FBX-object-name', test_name_f=_test_obj_name
+		)
