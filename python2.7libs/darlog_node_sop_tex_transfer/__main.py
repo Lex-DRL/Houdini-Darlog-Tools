@@ -5,7 +5,8 @@ from collections import OrderedDict
 from json import dumps
 
 from darlog_hou.attributes import (
-	test_name,
+	test_name_p_reserved,
+	test_name_no_reserved,
 	AttribFuncsPerGeo,
 	_attr_types_default_sort_map
 )
@@ -244,11 +245,11 @@ class ChannelsPerModeBlock:
 				continue
 
 			nice_nm = channel_labels_dict.get(key, key)
-			src_nm = test_name(
+			src_nm = test_name_no_reserved(
 				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel'
 			)
 			src_ch_dict[key] = '' if key not in src_required_ch else src_nm
-			trg_ch_dict[key] = '' if key not in trg_required_ch else test_name(
+			trg_ch_dict[key] = '' if key not in trg_required_ch else test_name_no_reserved(
 				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel',
 				default_name=src_nm, default_name_always_ok=True
 			)
@@ -294,7 +295,7 @@ class InputProcessor:
 		]:
 			udim_do = bool(udim_do)
 			data_dict[data_key]['do'] = udim_do
-			name = test_name(name, nice_nm, default_name='', default_name_always_ok=True)
+			name = test_name_p_reserved(name, nice_nm, default_name='', default_name_always_ok=True)
 			if not (udim_do and name):
 				continue
 			assert bool(name) and udim_do
@@ -390,10 +391,10 @@ class InputProcessor:
 				continue
 
 			nice_nm = self.channel_labels.get(key, key)
-			src_name = test_name(
+			src_name = test_name_no_reserved(
 				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel'
 			)
-			trg_name = test_name(
+			trg_name = test_name_no_reserved(
 				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel',
 				default_name=src_name, default_name_always_ok=True
 			)

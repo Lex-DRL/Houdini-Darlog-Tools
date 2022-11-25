@@ -5,6 +5,7 @@ Various utility functions to facilitate work with geometry attributes.
 
 import hou
 
+from itertools import chain as _chain
 from string import ascii_letters, digits
 
 try:
@@ -18,6 +19,14 @@ try:
 	_t_sz_arg = _O[_U[_t.Iterable[int], int]]
 except ImportError:
 	pass
+
+# noinspection PyBroadException
+try:
+	_unicode = unicode
+	_str_types = (str, unicode)
+except Exception:
+	_unicode = str
+	_str_types = (str, )
 
 
 def _dummy(*args, **kwargs):
@@ -45,14 +54,15 @@ def format_comma_and(items, _or=False):  # type: (_t.Iterable, bool) -> str
 	)
 
 
-_attr_nm_chars = set(ascii_letters + digits + '_')  # type: _t.Set[str]
+_attr_nm_valid_chars = set(ascii_letters + digits + '_')  # type: _t.Set[str]
+_attr_nm_valid_first_chars = set(ascii_letters + '_')  # type: _t.Set[str]
 
 
-def test_name(
+def _test_name_fixed_reserved_set(
+	reserved_names_set,  # type: _t.Set[str]
 	name,  # type: str
 	error_attr_nice_nm='',  # type: str
 	entity_type='attribute',  # type: str
-	reserved=None,  # type: _O[_U[str, _t.Iterable[str]]]
 	default_name='',  # type: str
 	default_name_always_ok=False  # type: bool
 ):  # type: (...) -> str
@@ -67,38 +77,108 @@ def test_name(
 			nice=format_prefix(error_attr_nice_nm), entity=entity_type
 		))
 
-	if name[0] not in (ascii_letters + '_'):
+	if name[0] not in _attr_nm_valid_first_chars:
 		raise hou.NodeError("{nice}{entity} name can't start with {{{x}}} character".format(
 			x=name[0], nice=format_prefix(error_attr_nice_nm), entity=entity_type
 		))
 
 	for x in name:
-		if x not in _attr_nm_chars:
+		if x not in _attr_nm_valid_chars:
 			raise hou.NodeError("Wrong {{{x}}} character in {nice}{entity} name: {nm}".format(
 				x=x, nm=repr(name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
 			))
 
-	def reserved_gen(val):  # type: (...) -> _t.Generator[str, ...]
-		if not val:
-			return
-		if isinstance(val, str):
-			yield val
-			return
-		try:
-			seq = iter(val)
-		except Exception:
-			raise hou.NodeError("<reserved> must be a string or sequence of strings. Got: {}".format(repr(val)))
-		for el in seq:
-			for x in reserved_gen(el):
-				yield x
-
-	reserved_set = set(reserved_gen(reserved))
-	if name in reserved_set:
+	if name in reserved_names_set:
 		raise hou.NodeError("Can't use reserved {a_nm} as {nice}{entity}".format(
 			a_nm=repr(name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
 		))
 
 	return name
+
+
+def _check_reserved_name(name):  # type: (str) -> str
+	assert isinstance(name, _str_types), "Reserved name must be a string. Got: {}".format(repr(name))
+	name = name.strip()
+	if not(
+		name
+		and name[0] in _attr_nm_valid_first_chars
+		and all(x in _attr_nm_valid_chars for x in name)
+	):
+		raise ValueError("Wrong reserved name: {}".format(repr(name)))
+	return name
+
+
+def _reserved_names_gen(val):  # type: (...) -> _t.Generator[str, ...]
+	if not val:
+		return
+	if isinstance(val, str):
+		for v in val.split():
+			try:
+				yield _check_reserved_name(v)
+			except ValueError as e:
+				if v == val:
+					raise e
+				msg = '{} in {}'.format(e.args[0], val)
+				e.args = tuple(_chain([msg], e.args[1:]))
+
+				# noinspection PyBroadException
+				try:
+					# For Py2:
+					_ = e.message
+					e.message = msg
+				except Exception:
+					pass
+				raise e
+		return
+
+	try:
+		seq = iter(val)
+	except Exception:
+		raise hou.NodeError("{{reserved_names}} must be a string or sequence of strings. Got: {}".format(repr(val)))
+
+	for el in seq:
+		try:
+			for x in _reserved_names_gen(el):
+				yield x
+		except hou.NodeError as e:
+			raise hou.NodeError('{} in {}'.format(e.instanceMessage(), repr(val)))
+
+
+def test_name_factory(
+	*reserved_names  # type: _U[_t.Iterable[str], str]
+):
+	"""
+	This factory generates a function which checks if a given string is a valid attribute/parameter name.
+	The generated function does so with respect to the reserved names given to the factory.
+
+	The factory is necessary since internally the provided `reserved_names` argument is checked and converted to a set
+	of strings. Doing it in for each function call would be quite expensive, so you should just call this factory,
+	cache it's result as your own func and reuse it.
+	"""
+	reserved_set = set(_reserved_names_gen(reserved_names))
+
+	def _test_name(
+		name,  # type: str
+		error_attr_nice_nm='',  # type: str
+		entity_type='attribute',  # type: str
+		default_name='',  # type: str
+		default_name_always_ok=False  # type: bool
+	):  # type: (...) -> str
+		"""Check whether a given string is a valid name for an entity (attribute/parm). """
+		return _test_name_fixed_reserved_set(
+			reserved_set, name,
+			error_attr_nice_nm=error_attr_nice_nm, entity_type=entity_type,
+			default_name=default_name, default_name_always_ok=default_name_always_ok
+		)
+
+	return _test_name
+
+
+test_name_no_reserved = test_name_factory()
+test_name_no_reserved.__doc__ = "Check whether a given string is a valid name for an entity (attribute/parm).\nNo names are reserved."
+
+test_name_p_reserved = test_name_factory('P')
+test_name_p_reserved.__doc__ = "Check whether a given string is a valid name for an entity (attribute/parm).\n'P' is reserved."
 
 
 _all_attr_datatypes = {
@@ -287,18 +367,26 @@ class AttribFuncsPerGeo:
 	def attr_find(
 		self,
 		attr_nm,  # type: str
-		reserved='P',  # type: _O[_U[str, _t.Iterable[str]]]
 		ok_multi=False,  # type: bool
 		ok_not_found=False,  # type: bool
 		error_attr_nice_nm='',  # type: str
 		default_name='',  # type: str
+		test_name_f=None,    # type: _t.Callable[[...], str]
 	):  # type: (...) -> _O[hou.Attrib]
 		"""
 		`None` is returned only if `ok_not_found` is `True`.
 
 		In all other cases, either a `hou.NodeError` is raised or a valid `hou.Attrib` is returned.
+
+		:param test_name_f: A function generated with `test_name_factory`.
 		"""
-		attr_nm = test_name(attr_nm, error_attr_nice_nm, reserved=reserved, default_name=default_name)
+		if not callable(test_name_f):
+			test_name_f = test_name_p_reserved
+		attr_nm = test_name_f(
+			attr_nm, error_attr_nice_nm=error_attr_nice_nm, entity_type='attribute',
+			default_name=default_name, default_name_always_ok=False
+		)
+
 		attr_tps_priority = self.attr_types
 
 		attr_getters = self.__attr_getters
@@ -338,12 +426,12 @@ class AttribFuncsPerGeo:
 		attr_nm,  # type: str
 		data_types,  # type: _t_dt_arg
 		sizes,  # type: _t_sz_arg
-		reserved='P',  # type: _O[_U[str, _t.Iterable[str]]]
 		ok_multi=False,  # type: bool
 		ok_not_found=False,  # type: bool
 		is_array=False,  # type: _O[bool]
 		error_attr_nice_nm='',  # type: str
 		default_name='',  # type: str
+		test_name_f=None,
 	):  # type: (...) -> _O[hou.Attrib]
 		"""
 		`None` is returned only if `ok_not_found` is `True`.
@@ -351,8 +439,9 @@ class AttribFuncsPerGeo:
 		In all other cases, either a `hou.NodeError` is raised or a valid `hou.Attrib` is returned.
 		"""
 		attr = self.attr_find(
-			attr_nm, reserved=reserved,
-			ok_multi=ok_multi, ok_not_found=ok_not_found, error_attr_nice_nm=error_attr_nice_nm, default_name=default_name
+			attr_nm, ok_multi=ok_multi, ok_not_found=ok_not_found,
+			error_attr_nice_nm=error_attr_nice_nm, default_name=default_name,
+			test_name_f=test_name_f,
 		)
 		if attr is None:
 			return None
