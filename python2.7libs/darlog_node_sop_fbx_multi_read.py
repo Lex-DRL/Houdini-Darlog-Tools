@@ -14,7 +14,7 @@ try:
 	import typing as _t
 
 	# noinspection PyTypeHints
-	_T = _t.TypeVar('T')  # Any type.
+	_T = _t.TypeVar('T')
 except ImportError:
 	pass
 
