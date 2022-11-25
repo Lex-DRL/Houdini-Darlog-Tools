@@ -5,6 +5,7 @@ Various utility functions to facilitate work with geometry attributes.
 
 import hou
 
+from functools import partial as _partial
 from itertools import chain as _chain
 from string import ascii_letters, digits
 
@@ -503,3 +504,81 @@ class NodeGeoProcessorBase(object):
 		if geo is None:
 			self.__geo = geo = assert_arg_type(self.node.geometry(), hou.Geometry)  # type: hou.Geometry
 		return geo
+
+
+def _attr_names_gen(
+	names  # type: _U[str, _t.Iterable[str]]
+):
+	"""Turn string / iterable of strings into a flat iterable. All whitespaces are kept."""
+	if isinstance(names, _str_types):
+		yield names
+		return
+	for nm in names:
+		for n in _attr_names_gen(nm):
+			yield n
+
+
+class CommonAttribsValidator(NodeGeoProcessorBase):
+	"""A class suitable to use without defining your own, if you just need to validate one of the common attribs."""
+
+	__pt_funcs = None
+	__vtx_funcs = None
+	__vtx_pt_funcs = None
+
+	@property
+	def _pt_funcs(self):
+		funcs = self.__pt_funcs
+		if funcs is not None:
+			return funcs
+		self.__pt_funcs = funcs = AttribFuncsPerGeo(self.geo, hou.attribType.Point)
+		return funcs
+
+	@property
+	def _vtx_funcs(self):
+		funcs = self.__vtx_pt_funcs
+		if funcs is not None:
+			return funcs
+		self.__vtx_pt_funcs = funcs = AttribFuncsPerGeo(self.geo, hou.attribType.Vertex)
+		return funcs
+
+	@property
+	def _vtx_pt_funcs(self):
+		funcs = self.__vtx_pt_funcs
+		if funcs is not None:
+			return funcs
+		self.__vtx_pt_funcs = funcs = AttribFuncsPerGeo(self.geo, (hou.attribType.Vertex, hou.attribType.Point))
+		return funcs
+
+	def test_uv(
+		self,
+		attr_names,  # type: _t.Union[str, _t.Iterable[str]]
+		sizes=3,  # type: _t_sz_arg
+		allow_pt=True,  # type: bool
+		allow_p=False,  # type: bool
+		ok_multi=False,  # type: bool
+		ok_not_found=False,  # type: bool
+	):
+		test_attr_f = _partial(
+			(self._vtx_pt_funcs if allow_pt else self._vtx_funcs).attr_test,
+			data_types=hou.attribData.Float, sizes=sizes, ok_multi=ok_multi, ok_not_found=ok_not_found,
+			test_name_f=test_name_no_reserved if allow_p else test_name_p_reserved
+		)
+		for attr_nm in _attr_names_gen(attr_names):
+			test_attr_f(attr_nm)
+
+	def test_string(
+		self,
+		attr_names,  # type: _t.Union[str, _t.Iterable[str]]
+		attr_types=None,  # type: _t_at_arg
+		ok_multi=False,  # type: bool
+		ok_not_found=False,  # type: bool
+	):
+		if attr_types is None:
+			attr_types = hou.attribType.Prim
+		test_attr_f = _partial(
+			AttribFuncsPerGeo(self.geo, attr_types).attr_test,
+			data_types=hou.attribData.String, sizes=1, ok_multi=ok_multi, ok_not_found=ok_not_found,
+			test_name_f=test_name_p_reserved
+		)
+		for attr_nm in _attr_names_gen(attr_names):
+			test_attr_f(attr_nm)
