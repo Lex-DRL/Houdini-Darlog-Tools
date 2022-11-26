@@ -16,7 +16,8 @@ from darlog_hou.attributes import (
 	AttribFuncsPerGeo,
 	test_name_no_reserved,
 	test_name_factory,
-	assert_str
+	assert_str,
+	catch_error_message
 )
 
 try:
@@ -111,14 +112,10 @@ class InputProcessorParm(NodeGeoProcessorBase):
 
 	def json_str(self):
 		out_dict = _data_dict_init()
-		try:
-			self._data_dict_populate(out_dict)
-		except Exception as e:
-			# noinspection PyBroadException
-			try:
-				msg = e.message
-			except Exception:
-				msg = e.args[0]
+		was_error, msg = catch_error_message(
+			lambda: self._data_dict_populate(out_dict)
+		)
+		if was_error:
 			_error(out_dict, msg)
 		return dumps(out_dict, indent=1)
 

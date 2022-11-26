@@ -11,16 +11,14 @@ from string import ascii_letters, digits
 
 try:
 	import typing as _t
-	_O = _t.Optional
-	_U = _t.Union
 
 	# noinspection PyTypeHints
 	_T = _t.TypeVar('T')
 
 	_t_attr_getter = _t.Callable[[str], hou.Attrib]
-	_t_at_arg = _O[_U[_t.Sequence[hou.attribType], hou.attribType]]
-	_t_dt_arg = _O[_U[_t.Iterable[hou.attribData], hou.attribData]]
-	_t_sz_arg = _O[_U[_t.Iterable[int], int]]
+	_t_at_arg = _t.Optional[_t.Union[_t.Sequence[hou.attribType], hou.attribType]]
+	_t_dt_arg = _t.Optional[_t.Union[_t.Iterable[hou.attribData], hou.attribData]]
+	_t_sz_arg = _t.Optional[_t.Union[_t.Iterable[int], int]]
 except ImportError:
 	pass
 
@@ -154,7 +152,7 @@ def _reserved_names_gen(val):  # type: (...) -> _t.Generator[str, ...]
 
 
 def test_name_factory(
-	*reserved_names  # type: _U[_t.Iterable[str], str]
+	*reserved_names  # type: _t.Union[_t.Iterable[str], str]
 ):
 	"""
 	This factory generates a function which checks if a given string is a valid attribute/parameter name.
@@ -381,7 +379,7 @@ class AttribFuncsPerGeo:
 		error_attr_nice_nm='',  # type: str
 		default_name='',  # type: str
 		test_name_f=None,    # type: _t.Callable[[...], str]
-	):  # type: (...) -> _O[hou.Attrib]
+	):  # type: (...) -> _t.Optional[hou.Attrib]
 		"""
 		`None` is returned only if `ok_not_found` is `True`.
 
@@ -437,11 +435,11 @@ class AttribFuncsPerGeo:
 		sizes,  # type: _t_sz_arg
 		ok_multi=False,  # type: bool
 		ok_not_found=False,  # type: bool
-		is_array=False,  # type: _O[bool]
+		is_array=False,  # type: _t.Optional[bool]
 		error_attr_nice_nm='',  # type: str
 		default_name='',  # type: str
 		test_name_f=None,
-	):  # type: (...) -> _O[hou.Attrib]
+	):  # type: (...) -> _t.Optional[hou.Attrib]
 		"""
 		`None` is returned only if `ok_not_found` is `True`.
 
@@ -481,6 +479,24 @@ def assert_str(val):  # type: (...) -> str
 	return val
 
 
+def catch_error_message(func):  # type: (_t.Callable) -> _t.Tuple[bool, _t.Optional[str]]
+	msg = None
+	was_error = False
+	try:
+		func()
+	except hou.NodeError as e:
+		msg = e.instanceMessage()
+		was_error = True
+	except Exception as e:
+		# noinspection PyBroadException
+		try:
+			msg = e.message
+		except Exception:
+			msg = e.args[0]
+		was_error = True
+	return was_error, msg
+
+
 class NodeGeoProcessorBase(object):
 	"""
 	A base class to build per-asset input processors.
@@ -507,7 +523,7 @@ class NodeGeoProcessorBase(object):
 
 
 def _attr_names_gen(
-	names  # type: _U[str, _t.Iterable[str]]
+	names  # type: _t.Union[str, _t.Iterable[str]]
 ):
 	"""Turn string / iterable of strings into a flat iterable. All whitespaces are kept."""
 	if isinstance(names, _str_types):
@@ -557,14 +573,16 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 		allow_p=False,  # type: bool
 		ok_multi=False,  # type: bool
 		ok_not_found=False,  # type: bool
-	):
+	):  # type: (...) -> _t.List[hou.Attrib]
 		test_attr_f = _partial(
 			(self._vtx_pt_funcs if allow_pt else self._vtx_funcs).attr_test,
 			data_types=hou.attribData.Float, sizes=sizes, ok_multi=ok_multi, ok_not_found=ok_not_found,
 			test_name_f=test_name_no_reserved if allow_p else test_name_p_reserved
 		)
-		for attr_nm in _attr_names_gen(attr_names):
+		return [
 			test_attr_f(attr_nm)
+			for attr_nm in _attr_names_gen(attr_names)
+		]
 
 	def test_string(
 		self,
@@ -572,7 +590,7 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 		attr_types=None,  # type: _t_at_arg
 		ok_multi=False,  # type: bool
 		ok_not_found=False,  # type: bool
-	):
+	):  # type: (...) -> _t.List[hou.Attrib]
 		if attr_types is None:
 			attr_types = hou.attribType.Prim
 		test_attr_f = _partial(
@@ -580,5 +598,7 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 			data_types=hou.attribData.String, sizes=1, ok_multi=ok_multi, ok_not_found=ok_not_found,
 			test_name_f=test_name_p_reserved
 		)
-		for attr_nm in _attr_names_gen(attr_names):
+		return [
 			test_attr_f(attr_nm)
+			for attr_nm in _attr_names_gen(attr_names)
+		]
