@@ -236,7 +236,7 @@ def _test_attr_dt(attr, data_types, error_attr_nice_nm=''):  # type: (hou.Attrib
 		raise hou.NodeError("{a} is {dt} attribute{a_brackets}. Expected: {exp}".format(
 			a=repr(attr.name()), dt=dt.name(),
 			exp=format_comma_and(
-				[a_dt.name() for a_dt in sorted(data_types, key=lambda x: _attr_datatypes_sort_map.get(x))],
+				[a_dt.name() for a_dt in sorted(data_types_set, key=lambda x: _attr_datatypes_sort_map.get(x))],
 				_or=True
 			),
 			a_brackets=format_postfix(error_attr_nice_nm)
