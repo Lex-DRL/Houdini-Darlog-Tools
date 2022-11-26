@@ -145,7 +145,7 @@ def vex_xform_for_attr_type(
 	lines_by_vector_type = [
 		vector_class_lines(
 			pattern,
-			json_dict["{at}_{vt}".format(at=attr_type, vt=vector_tp)]
+			json_dict.get("{at}_{vt}".format(at=attr_type, vt=vector_tp), [])
 		) for vector_tp, pattern, in zip(
 			_vector_types,
 			(vex_format_pos, vex_format_dir, vex_format_nrm)
@@ -178,9 +178,9 @@ class InputProcessorPythonNode(NodeGeoProcessorBase):
 		self.json_str = json_str
 
 	def main(self):
-		json_data = loads(assert_str(self.json_str))
-		if json_data['is_error']:
-			raise hou.NodeError(json_data['error'])
+		json_dict = loads(assert_str(self.json_str))  # type: dict
+		if json_dict.get('is_error', False):
+			raise hou.NodeError(json_dict.get('error', ''))
 
 		geo = self.geo
 		pt_attr_checker = AttribFuncsPerGeo(geo, hou.attribType.Point)
