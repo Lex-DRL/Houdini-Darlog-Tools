@@ -597,6 +597,10 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 		ok_multi=False,  # type: bool
 		ok_not_found=False,  # type: bool
 	):  # type: (...) -> _t.List[hou.Attrib]
+		"""
+
+		:param attr_types: If `None`, `hou.attribType.Prim` is assumed.
+		"""
 		if attr_types is None:
 			attr_types = hou.attribType.Prim
 		test_attr_f = _partial(
