@@ -10,7 +10,8 @@ import hou
 from collections import OrderedDict
 from json import dumps
 
-from darlog_hou.attributes import CommonAttribsValidator, catch_error_message
+from darlog_hou.attributes import CommonAttribsValidator
+from darlog_hou.errors import catch_error_message
 
 try:
 	import typing as _t
@@ -77,9 +78,10 @@ class InputProcessorParm(CommonAttribsValidator):
 		attr_nm  # type: str
 	):
 		_ = self._data
-		was_error, msg = catch_error_message(
-			lambda: self._main(attr_nm)
+		caught_error, msg = catch_error_message(
+			lambda: self._main(attr_nm),
+			''
 		)
-		if was_error:
+		if caught_error is not None:
 			self._add_error(msg)
 		return dumps(self._out_data_dict(), indent=1)

@@ -10,6 +10,8 @@ import hou
 from os.path import isfile
 from glob import glob
 
+from darlog_hou.errors import any_exception, catch_error_message
+
 try:
 	import typing as _t
 
@@ -106,11 +108,12 @@ class InputProcessor:
 		self.geo.setGlobalAttribValue(error_bool_attr, 0)
 
 	def main(self):
+		caught_error, msg = catch_error_message(self._main, '')
+		if caught_error is None:
+			return
+
 		try:
-			return self._main()
-		except Exception as e:
-			try:
-				self.geo.setGlobalAttribValue(error_bool_attr, 1)
-			except Exception:
-				pass
-			raise e
+			self.geo.setGlobalAttribValue(error_bool_attr, 1)
+		except any_exception:
+			pass
+		raise caught_error

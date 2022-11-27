@@ -6,6 +6,7 @@ Python code for `uvP` sop node.
 __author__ = 'Lex Darlog (DRL)'
 
 import hou
+
 from darlog_hou.attributes import CommonAttribsValidator
 
 

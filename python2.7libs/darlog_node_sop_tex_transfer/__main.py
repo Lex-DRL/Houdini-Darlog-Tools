@@ -10,6 +10,7 @@ from darlog_hou.attributes import (
 	AttribFuncsPerGeo,
 	_attr_types_default_sort_map
 )
+from darlog_hou.errors import catch_error_message
 
 import typing as _t
 
@@ -550,9 +551,7 @@ class InputProcessor:
 		cleanup_out_data(self.data_dict, del_root_keys=False)
 
 	def main(self):
-		try:
-			self._main()
-		except hou.NodeError as e:
-			self.data_dict['error'] = e.instanceMessage()
-
+		caught_error, msg = catch_error_message(self._main, '')
+		if caught_error is not None:
+			self.data_dict['error'] = msg
 		return dumps(self.data_dict, indent=2)

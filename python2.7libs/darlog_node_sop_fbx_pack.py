@@ -15,10 +15,9 @@ from darlog_hou.attributes import (
 	NodeGeoProcessorBase,
 	AttribFuncsPerGeo,
 	test_name_no_reserved,
-	test_name_factory,
-	assert_str,
-	catch_error_message
+	test_name_factory
 )
+from darlog_hou.errors import assert_str, catch_error_message
 
 try:
 	import typing as _t
@@ -112,10 +111,11 @@ class InputProcessorParm(NodeGeoProcessorBase):
 
 	def json_str(self):
 		out_dict = _data_dict_init()
-		was_error, msg = catch_error_message(
-			lambda: self._data_dict_populate(out_dict)
+		caught_error, msg = catch_error_message(
+			lambda: self._data_dict_populate(out_dict),
+			''
 		)
-		if was_error:
+		if caught_error is not None:
 			_error(out_dict, msg)
 		return dumps(out_dict, indent=1)
 

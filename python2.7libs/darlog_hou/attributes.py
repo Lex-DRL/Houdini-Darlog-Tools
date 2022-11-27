@@ -6,14 +6,12 @@ Various utility functions to facilitate work with geometry attributes.
 import hou
 
 from functools import partial as _partial
-from itertools import chain as _chain
 from string import ascii_letters, digits
+
+from darlog_hou.errors import *
 
 try:
 	import typing as _t
-
-	# noinspection PyTypeHints
-	_T = _t.TypeVar('T')
 
 	_t_attr_getter = _t.Callable[[str], hou.Attrib]
 	_t_at_arg = _t.Optional[_t.Union[_t.Sequence[hou.attribType], hou.attribType]]
@@ -465,36 +463,6 @@ class AttribFuncsPerGeo:
 		_test_attr_sz(attr, sizes, error_attr_nice_nm=error_attr_nice_nm)
 
 		return attr
-
-
-def assert_arg_type(val, _class):  # type: (_t.Any, _t.Type[_T]) -> _T
-	if not isinstance(val, _class):
-		raise TypeError("Not a {{{}}}: {}".format(_class.__name__, repr(val)))
-	return val
-
-
-def assert_str(val):  # type: (...) -> str
-	if not isinstance(val, _str_types):
-		raise TypeError("Not a string: {}".format(repr(val)))
-	return val
-
-
-def catch_error_message(func):  # type: (_t.Callable) -> _t.Tuple[bool, _t.Optional[str]]
-	msg = None
-	was_error = False
-	try:
-		func()
-	except hou.NodeError as e:
-		msg = e.instanceMessage()
-		was_error = True
-	except Exception as e:
-		# noinspection PyBroadException
-		try:
-			msg = e.message
-		except Exception:
-			msg = e.args[0]
-		was_error = True
-	return was_error, msg
 
 
 class NodeGeoProcessorBase(object):
