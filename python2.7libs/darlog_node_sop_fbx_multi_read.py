@@ -11,6 +11,7 @@ from os.path import isfile
 from glob import glob
 
 from darlog_hou.errors import any_exception, catch_error_message
+from darlog_hou.py23 import str_format as _format
 
 try:
 	import typing as _t
@@ -21,7 +22,7 @@ except ImportError:
 	pass
 
 win_slash = 'z\\z'[1]  # mindfuck to workaround Houdini bug when it sometimes can't just create a single backslash char
-hip_pattern = '{}{}'.format('$', 'HIP')  # Houdini expands it to the actual path, so - this workaround
+hip_pattern = _format('{}{}', '$', 'HIP')  # Houdini expands it to the actual path, so - this workaround
 
 fbx_path_attr_nm = 'fbx_path'
 fbx_dir_attr_nm = 'fbx_dir'
@@ -31,7 +32,7 @@ error_bool_attr = 'is_error'
 
 
 def _assert_arg_type(val, _class):  # type: (_t.Any, _t.Type[_T]) -> _T
-	assert isinstance(val, _class), "Not a {{{}}}: {}".format(_class.__name__, repr(val))
+	assert isinstance(val, _class), _format("Not a {{{}}}: {}", _class.__name__, repr(val))
 	return val
 
 
@@ -39,7 +40,7 @@ def _hip_path_with_only_one_trailing_slash(path):  # type: (str) -> str
 	if not path:
 		raise hou.NodeError("HIP path can't be empty")
 	path_no_slash = path.rstrip('/')
-	return '/' if not path_no_slash else '{}/'.format(path_no_slash)
+	return '/' if not path_no_slash else _format('{}/', path_no_slash)
 
 
 def path_to_dir_and_name( path):  # type: (str) -> _t.Tuple[str, str]
@@ -69,7 +70,7 @@ class InputProcessor:
 		if path in self._hip_paths:
 			return hip_pattern
 		if path.startswith(self.hip_path_with_slash):
-			path = "{}/{}".format(hip_pattern, path[self.hip_path_with_slash_n:])
+			path = _format("{}/{}", hip_pattern, path[self.hip_path_with_slash_n:])
 			return path
 		return path
 
@@ -79,7 +80,7 @@ class InputProcessor:
 			attr = geo.findPointAttrib(attr_nm)  # type: hou.Attrib
 			if attr is None or not attr:
 				raise hou.NodeError(
-					"Internal point attribute not found: {}".format(repr(attr_nm))
+					_format("Internal point attribute not found: {}", repr(attr_nm))
 				)
 
 		path_pattern = self.path_pattern
@@ -95,7 +96,7 @@ class InputProcessor:
 		file_paths = [x for x in file_paths if x.strip() and x.lower().endswith('.fbx')]
 
 		if not file_paths:
-			raise hou.NodeError("Files not found: {}".format(path_pattern))
+			raise hou.NodeError(_format("Files not found: {}", path_pattern))
 
 		geo.createPoints([
 			(x, 0, 0) for x in range(len(file_paths))

@@ -18,6 +18,7 @@ from darlog_hou.attributes import (
 	test_name_factory
 )
 from darlog_hou.errors import assert_str, catch_error_message
+from darlog_hou.py23 import str_format as _format
 
 try:
 	import typing as _t
@@ -27,21 +28,13 @@ try:
 except ImportError:
 	pass
 
-# noinspection PyBroadException
-try:
-	_unicode = unicode
-	_str_types = (str, unicode)
-except Exception:
-	_unicode = str
-	_str_types = (str, )
-
 
 _attr_types = tuple('pt prim vtx'.split())
 _vector_types = tuple('pos dir nrm'.split())
 
 _data_dict_template = OrderedDict(_chain(
 	[
-		('{}_{}'.format(at, vt), list())
+		(_format('{}_{}', at, vt), list())
 		for at in _attr_types for vt in _vector_types
 	],
 	[
@@ -105,7 +98,7 @@ class InputProcessorParm(NodeGeoProcessorBase):
 			(assert_str(x) for x in self.vector_patterns)
 		):
 			out_dict.update(
-				('{}_{}'.format(attr_tp, vector_tp), attrs)
+				(_format('{}_{}', attr_tp, vector_tp), attrs)
 				for attr_tp, attrs in zip(_attr_types, self._matching_vector_attribs(attr_pattern))
 			)
 
@@ -125,7 +118,7 @@ _vex_line_separator = '\n'
 
 def vector_class_lines(pattern, attribs):  # type: (str, _t.List[str]) -> str
 	return _vex_line_separator.join(
-		pattern.format(vec=a) for a in attribs
+		_format(pattern, vec=a) for a in attribs
 	)
 
 
@@ -145,7 +138,7 @@ def vex_xform_for_attr_type(
 	lines_by_vector_type = [
 		vector_class_lines(
 			pattern,
-			json_dict.get("{at}_{vt}".format(at=attr_type, vt=vector_tp), [])
+			json_dict.get(_format("{at}_{vt}", at=attr_type, vt=vector_tp), [])
 		) for vector_tp, pattern, in zip(
 			_vector_types,
 			(vex_format_pos, vex_format_dir, vex_format_nrm)

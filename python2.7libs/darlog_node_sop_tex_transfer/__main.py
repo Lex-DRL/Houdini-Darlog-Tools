@@ -11,6 +11,7 @@ from darlog_hou.attributes import (
 	_attr_types_default_sort_map
 )
 from darlog_hou.errors import catch_error_message
+from darlog_hou.py23 import str_format as _format
 
 import typing as _t
 
@@ -82,7 +83,7 @@ _mask_channel_labels = {
 
 def mask_label(main_label, channel_key):
 	f_string = _mask_channel_labels.get(channel_key, '<unknown> {} channel')
-	return f_string.format(main_label)
+	return _format(f_string, main_label)
 
 
 # To avoid extra dependencies, we can't use `@attr.s` here, so let's build an output data as OrderedDict:
@@ -247,11 +248,11 @@ class ChannelsPerModeBlock:
 
 			nice_nm = channel_labels_dict.get(key, key)
 			src_nm = test_name_no_reserved(
-				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel', split_by_spaces=True
+				hou.evalParm(src_parm), _format('source {}', nice_nm), entity_type='channel', split_by_spaces=True
 			)
 			src_ch_dict[key] = '' if key not in src_required_ch else src_nm
 			trg_ch_dict[key] = '' if key not in trg_required_ch else test_name_no_reserved(
-				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel', split_by_spaces=True,
+				hou.evalParm(trg_parm), _format('target {}', nice_nm), entity_type='channel', split_by_spaces=True,
 				default_name=src_nm, default_name_always_ok=True
 			)
 
@@ -262,7 +263,7 @@ class InputProcessor:
 		geo  # type: hou.Geometry
 	):
 		if not isinstance(geo, hou.Geometry):
-			raise hou.NodeError("Not a geometry: {}".format(geo))
+			raise hou.NodeError(_format("Not a geometry: {}", geo))
 		self.geo = geo
 
 		self.attr_test_all_types = AttribFuncsPerGeo(geo).attr_test
@@ -272,7 +273,7 @@ class InputProcessor:
 		self.data_dict = out_dict_init()
 
 	def __repr__(self):
-		return '{}({})'.format(self.__class__.__name__, self.geo)
+		return _format('{}({})', self.__class__.__name__, self.geo)
 
 	def _main_uvs(self):
 		data_dict = self.data_dict
@@ -282,9 +283,10 @@ class InputProcessor:
 		]:
 			attr = self.attr_test_uv(attr_name, hou.attribData.Float, sizes=3, error_attr_nice_nm=nice_nm)
 			data_dict[key] = attr.name()
-			data_dict['{}_isVtx'.format(key)] = bool(attr.type() == hou.attribType.Vertex)
+			data_dict[_format('{}_isVtx', key)] = bool(attr.type() == hou.attribType.Vertex)
 		if data_dict['srcUVs'] == data_dict['trgUVs']:
-			raise hou.NodeError("UV attribute {a_nm} can't be both source and target UV-set".format(
+			raise hou.NodeError(_format(
+				"UV attribute {a_nm} can't be both source and target UV-set",
 				a_nm=repr(data_dict['srcUVs'])
 			))
 
@@ -316,8 +318,8 @@ class InputProcessor:
 
 		for i, nm in enumerate(mask_literals, 1):
 			out_dict = mask_dict()
-			out_dict['key'] = 'mask{}'.format(i)
-			out_dict['label'] = 'Mask-{}'.format(nm)
+			out_dict['key'] = _format('mask{}', i)
+			out_dict['label'] = _format('Mask-{}', nm)
 			ChannelsPerModeBlock(
 				hou.evalParm("../mask{}_mode".format(i)),
 				hou.evalParm("../mask{}_convert_mode".format(i)),
@@ -393,10 +395,10 @@ class InputProcessor:
 
 			nice_nm = self.channel_labels.get(key, key)
 			src_name = test_name_no_reserved(
-				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel', split_by_spaces=True
+				hou.evalParm(src_parm), _format('source {}', nice_nm), entity_type='channel', split_by_spaces=True
 			)
 			trg_name = test_name_no_reserved(
-				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel', split_by_spaces=True,
+				hou.evalParm(trg_parm), _format('target {}', nice_nm), entity_type='channel', split_by_spaces=True,
 				default_name=src_name, default_name_always_ok=True
 			)
 			self.data_dict['srcCh'][key] = src_name
@@ -416,7 +418,7 @@ class InputProcessor:
 			main_label = mask_data['label']  # type: str
 			assert 'trgCh' in mask_data and isinstance(mask_data['trgCh'], dict)
 			for ch_key, ch_val in mask_data['trgCh'].items():
-				full_ch_key = '{}_{}'.format(main_key, ch_key)
+				full_ch_key = _format('{}_{}', main_key, ch_key)
 				self.channel_labels[full_ch_key] = mask_label(main_label, ch_key)
 				all_trg_ch[full_ch_key] = ch_val
 
@@ -427,7 +429,8 @@ class InputProcessor:
 				continue
 			ch_label = self.channel_labels.get(key, key)
 			if ch in seen:
-				raise hou.NodeError("{ch} channel can't be used for multiple outputs: {o1}, {o2}".format(
+				raise hou.NodeError(_format(
+					"{ch} channel can't be used for multiple outputs: {o1}, {o2}",
 					ch=repr(ch), o1=seen[ch], o2=ch_label
 				))
 			seen[ch] = ch_label
@@ -451,13 +454,13 @@ class InputProcessor:
 			(False, 'trgBiTg', 'source biTangent'),
 		]:
 			attr = self.attr_test_all_types(
-				hou.evalParm("../{}_attr".format(key)),
+				hou.evalParm(_format("../{}_attr", key)),
 				hou.attribData.Float, sizes=3, ok_not_found=not required, error_attr_nice_nm=nice_nm,
 			)
 			if attr is None:
 				continue
 			out_dict[key] = attr.name()
-			out_dict['{}_mode'.format(key)] = _attr_types_default_sort_map.get(attr.type(), 0)
+			out_dict[_format('{}_mode', key)] = _attr_types_default_sort_map.get(attr.type(), 0)
 
 		# Now we should check that in each tangentBasis at least each vector isn't used twice:
 		vector_labels = ('Normal', 'Tangent', 'biTangent')
@@ -469,7 +472,8 @@ class InputProcessor:
 			# Ensure none of the vectors uses any of UV attribs:
 			for a_nm, a_label in zip(ts_vector_names, vector_labels):
 				if a_nm and a_nm in uv_attrib_names:
-					raise hou.NodeError("Can't use UV attribute {a_nm} as {{{src_trg} {v_nm}}}".format(
+					raise hou.NodeError(_format(
+						"Can't use UV attribute {a_nm} as {{{src_trg} {v_nm}}}",
 						a_nm=repr(a_nm), src_trg=src_trg, v_nm=a_label
 					))
 
@@ -481,12 +485,11 @@ class InputProcessor:
 			]:
 				a_nm, b_nm = ts_vector_names[a_i], ts_vector_names[b_i]
 				if a_nm and a_nm and a_nm == b_nm:
-					raise hou.NodeError(
+					raise hou.NodeError(_format(
 						"Can't use the same attribute {a_nm} for {src_trg} {{{a}}} and {{{b}}}: "
-						"they form a Tangent-basis and therefore must be perpendicular vectors".format(
-							a_nm=repr(a_nm), src_trg=src_trg, a=vector_labels[a_i], b=vector_labels[b_i]
-						)
-					)
+						"they form a Tangent-basis and therefore must be perpendicular vectors",
+						a_nm=repr(a_nm), src_trg=src_trg, a=vector_labels[a_i], b=vector_labels[b_i]
+					))
 
 	def _main_internal_attribs(self):
 		"""Must be called AFTER all the attrib names are already checked/set."""
@@ -533,7 +536,7 @@ class InputProcessor:
 		for key in auto_generated_keys:
 			attr_name = key
 			while attr_name in already_passed_attribs:
-				attr_name = '{}_'.format(attr_name)
+				attr_name = _format('{}_', attr_name)
 			assert attr_name not in already_passed_attribs
 			out_dict[key] = attr_name
 			already_passed_add(attr_name)

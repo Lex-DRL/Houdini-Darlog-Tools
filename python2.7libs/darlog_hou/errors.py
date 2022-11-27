@@ -6,6 +6,8 @@ import hou as _hou
 
 from itertools import chain as _chain
 
+from darlog_hou.py23 import str_format as _format
+
 try:
 	import typing as _t
 
@@ -31,13 +33,13 @@ any_exception = (Exception, _hou.Error)
 
 def assert_arg_type(val, _class):  # type: (_t.Any, _t.Type[_T]) -> _T
 	if not isinstance(val, _class):
-		raise TypeError("Not a {{{}}}: {}".format(_class.__name__, repr(val)))
+		raise TypeError(_format("Not a {{{}}}: {}", _class.__name__, repr(val)))
 	return val
 
 
 def assert_str(val):  # type: (...) -> str
 	if not isinstance(val, _str_types):
-		raise TypeError("Not a string: {}".format(repr(val)))
+		raise TypeError(_format("Not a string: {}", repr(val)))
 	return val
 
 
@@ -103,7 +105,7 @@ def _update_builtin_error_message(
 		msg = msg()
 		has_message = False  # We shouldn't override `message` function on the instance with a string attribute.
 
-	msg = format_str.format(old=msg, **kwargs)
+	msg = _format(format_str, old=msg, **kwargs)
 	if has_message:
 		error.message = msg
 
@@ -130,7 +132,7 @@ def update_error_message(
 	if isinstance(error, _hou.Error):
 		# For houdini errors, we kinda have to recreate it:
 		hou_error_type = type(error)
-		return hou_error_type(format_str.format(old=error.instanceMessage(), **kwargs))
+		return hou_error_type(_format(format_str, old=error.instanceMessage(), **kwargs))
 
 	try:
 		return _update_builtin_error_message(error, format_str, **kwargs)
