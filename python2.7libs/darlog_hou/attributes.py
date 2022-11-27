@@ -59,23 +59,32 @@ _attr_nm_valid_first_chars = set(ascii_letters + '_')  # type: _t.Set[str]
 
 
 def _test_name_fixed_reserved_set(
-	reserved_names_set,  # type: _t.Set[str]
-	name,  # type: str
+	reserved_names_set,  # type: _t.FrozenSet[str]
+	attr_name,  # type: str
 	error_attr_nice_nm='',  # type: str
-	entity_type='attribute',  # type: str
 	default_name='',  # type: str
-	default_name_always_ok=False  # type: bool
+	default_name_always_ok=False,  # type: bool
+	entity_type='attribute',  # type: str
+	split_by_spaces=False,  # type: bool
 ):  # type: (...) -> str
 	"""Test name for an entity (attribute/parm)."""
-	if not isinstance(name, _str_types):
+	assert isinstance(reserved_names_set, frozenset), "{{reserved_names_set}} is not a frozen set: {}".format(repr(reserved_names_set))
+
+	if not isinstance(attr_name, _str_types):
 		raise hou.NodeError("Name for {nice}{entity} must be a string".format(
 			nice=format_prefix(error_attr_nice_nm), entity=entity_type
 		))
 
-	names = name.split()
-	name = names[0] if names else default_name
-	if default_name_always_ok and name == default_name:
-		return default_name
+	name = attr_name
+	if split_by_spaces:
+		names = attr_name.split()
+		name = names[0] if names else ''
+	else:
+		name = name.strip()
+	if not name:
+		if default_name_always_ok:
+			return default_name
+		name = default_name
 
 	if not name:
 		raise hou.NodeError("No name given for {nice}{entity}".format(
@@ -83,26 +92,31 @@ def _test_name_fixed_reserved_set(
 		))
 
 	if name[0] not in _attr_nm_valid_first_chars:
-		raise hou.NodeError("{nice}{entity} name can't start with {{{x}}} character".format(
-			x=name[0], nice=format_prefix(error_attr_nice_nm), entity=entity_type
+		raise hou.NodeError("{nice}{entity} name can't start with {{{x}}} character: {nm}".format(
+			x=name[0], nm=repr(attr_name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
 		))
 
 	for x in name:
 		if x not in _attr_nm_valid_chars:
 			raise hou.NodeError("Wrong {{{x}}} character in {nice}{entity} name: {nm}".format(
-				x=x, nm=repr(name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
+				x=x, nm=repr(attr_name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
 			))
 
 	if name in reserved_names_set:
-		raise hou.NodeError("Can't use reserved {a_nm} as {nice}{entity}".format(
-			a_nm=repr(name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
+		raise hou.NodeError("Can't use reserved {nm} as {nice}{entity}".format(
+			nm=repr(name), nice=format_prefix(error_attr_nice_nm), entity=entity_type
 		))
 
 	return name
 
 
 def _check_reserved_name(name):  # type: (str) -> str
-	assert isinstance(name, _str_types), "Reserved name must be a string. Got: {}".format(repr(name))
+	"""
+	Checks a single name for reserved attributes. The input must be a non-empty string with ONLY one attribute.
+
+	:raises ValueError: The string is an invalid attribute name.
+	"""
+	assert name and isinstance(name, _str_types), "Reserved name must be non-empty string. Got: {}".format(repr(name))
 	name = name.strip()
 	if not(
 		name
@@ -114,41 +128,82 @@ def _check_reserved_name(name):  # type: (str) -> str
 
 
 def _reserved_names_gen(val):  # type: (...) -> _t.Generator[str, ...]
+	"""
+	Turns reserved names argument from an arbitrary type to a sequence of individual attr-names, each checked for validity.
+
+	:raises TypeError: Not a string (might be inside another iterable).
+	:raises ValueError: invalid attribute name
+	"""
 	if not val:
 		return
-	if isinstance(val, str):
+
+	if isinstance(val, _str_types):
 		for v in val.split():
 			try:
 				yield _check_reserved_name(v)
 			except ValueError as e:
 				if v == val:
 					raise e
-				msg = '{} in {}'.format(e.args[0], val)
-				e.args = tuple(_chain([msg], e.args[1:]))
-
-				# noinspection PyBroadException
-				try:
-					# For Py2:
-					_ = e.message
-					e.message = msg
-				except Exception:
-					pass
+				update_error_message(e, '{old} in {parent}', parent=repr(val))
 				raise e
 		return
 
 	try:
 		seq = iter(val)
-	except Exception:
-		raise hou.NodeError("{{reserved_names}} must be a string or sequence of strings. Got: {}".format(repr(val)))
+	except any_exception:
+		raise TypeError("{{reserved_names}} must be a string or sequence of strings. Got: {}".format(repr(val)))
 
 	for el in seq:
 		try:
 			for x in _reserved_names_gen(el):
 				yield x
-		except hou.NodeError as e:
-			raise hou.NodeError('{} in {}'.format(e.instanceMessage(), repr(val)))
+		except (TypeError, ValueError) as e:
+			update_error_message(e, '{old} in {parent}', parent=repr(val))
+			raise e
 
 
+def _test_name_factory(
+	reserved_set  # type: _t.FrozenSet[str]
+):
+	if not(
+		isinstance(reserved_set, frozenset)
+		and all(isinstance(x, _str_types) for x in reserved_set)
+	):
+		raise TypeError("{reserved_set} must be a frozenset of individual attribute names")
+
+	def _test_name(
+		attr_name,  # type: str
+		error_attr_nice_nm='',  # type: str
+		default_name='',  # type: str
+		default_name_always_ok=False,  # type: bool
+		entity_type='attribute',  # type: str
+		split_by_spaces=False,  # type: bool
+	):  # type: (...) -> str
+		"""Check whether a given string is a valid name for an entity (attribute/parm). """
+		return _test_name_fixed_reserved_set(
+			reserved_set, attr_name, error_attr_nice_nm=error_attr_nice_nm,
+			default_name=default_name, default_name_always_ok=default_name_always_ok,
+			entity_type=entity_type,
+			split_by_spaces=split_by_spaces,
+		)
+
+	return _test_name
+
+
+test_name_no_reserved = _test_name_factory(frozenset())
+test_name_no_reserved.__doc__ = "Check whether a given string is a valid name for an entity (attribute/parm).\nNo names are reserved."
+
+test_name_p_reserved = _test_name_factory(frozenset(['P', ]))
+test_name_p_reserved.__doc__ = "Check whether a given string is a valid name for an entity (attribute/parm).\n'P' is reserved."
+
+
+_predefined_name_testers = {
+	tuple(): test_name_no_reserved,
+	('P', ): test_name_p_reserved,
+}
+
+
+# A separate wrapper function - in order to reuse `test_name_no_reserved()` and `test_name_p_reserved()`:
 def test_name_factory(
 	*reserved_names  # type: _t.Union[_t.Iterable[str], str]
 ):
@@ -159,31 +214,17 @@ def test_name_factory(
 	The factory is necessary since internally the provided `reserved_names` argument is checked and converted to a set
 	of strings. Doing it in for each function call would be quite expensive, so you should just call this factory,
 	cache it's result as your own func and reuse it.
+
+	:param reserved_names:
+		A single string with space-separated attribute names, an iterable of those or multiple args
+		(nested ones supported, too).
 	"""
-	reserved_set = set(_reserved_names_gen(reserved_names))
+	reserved_set = frozenset(_reserved_names_gen(reserved_names))
+	reserved_tuple = tuple(sorted(reserved_names))
 
-	def _test_name(
-		name,  # type: str
-		error_attr_nice_nm='',  # type: str
-		entity_type='attribute',  # type: str
-		default_name='',  # type: str
-		default_name_always_ok=False  # type: bool
-	):  # type: (...) -> str
-		"""Check whether a given string is a valid name for an entity (attribute/parm). """
-		return _test_name_fixed_reserved_set(
-			reserved_set, name,
-			error_attr_nice_nm=error_attr_nice_nm, entity_type=entity_type,
-			default_name=default_name, default_name_always_ok=default_name_always_ok
-		)
-
-	return _test_name
-
-
-test_name_no_reserved = test_name_factory()
-test_name_no_reserved.__doc__ = "Check whether a given string is a valid name for an entity (attribute/parm).\nNo names are reserved."
-
-test_name_p_reserved = test_name_factory('P')
-test_name_p_reserved.__doc__ = "Check whether a given string is a valid name for an entity (attribute/parm).\n'P' is reserved."
+	if reserved_tuple in _predefined_name_testers:
+		return _predefined_name_testers[reserved_tuple]
+	return _test_name_factory(reserved_set)
 
 
 _all_attr_datatypes = {
@@ -209,7 +250,7 @@ def _test_attr_dt(attr, data_types, error_attr_nice_nm=''):  # type: (hou.Attrib
 
 		try:
 			seq = iter(val)  # type: _t.Iterator[hou.attribData]
-		except Exception:
+		except any_exception:
 			raise hou.NodeError(
 				"{{data_types}} must be hou.attribData or a sequence of them (for {nice}attribute {a}). Got: {val}".format(
 					a=repr(attr.name()), val=repr(val), nice=format_prefix(error_attr_nice_nm)
@@ -250,7 +291,7 @@ def _test_attr_sz(attr, sizes, error_attr_nice_nm=''):  # type: (hou.Attrib, _t_
 
 		try:
 			seq = iter(val)  # type: _t.Iterator[hou.attribData]
-		except Exception:
+		except any_exception:
 			raise hou.NodeError(
 				"Expected sizes for {nice}attribute {a} must be ints: {val}".format(
 					a=repr(attr.name()), val=repr(val), nice=format_prefix(error_attr_nice_nm)
@@ -321,7 +362,7 @@ class AttribFuncsPerGeo:
 
 		try:
 			seq = iter(attr_tps_priority)  # type: _t.Iterator[hou.attribType]
-		except Exception:
+		except any_exception:
 			raise TypeError("{{attr_priority}} must be hou.attribType or a sequence of them. Got: {}".format(
 				repr(attr_tps_priority)
 			))
@@ -387,10 +428,7 @@ class AttribFuncsPerGeo:
 		"""
 		if not callable(test_name_f):
 			test_name_f = test_name_p_reserved
-		attr_nm = test_name_f(
-			attr_nm, error_attr_nice_nm=error_attr_nice_nm, entity_type='attribute',
-			default_name=default_name, default_name_always_ok=False
-		)
+		attr_nm = test_name_f(attr_nm, error_attr_nice_nm=error_attr_nice_nm, default_name=default_name)
 
 		attr_tps_priority = self.attr_types
 
@@ -563,8 +601,7 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 			attr_types = hou.attribType.Prim
 		test_attr_f = _partial(
 			AttribFuncsPerGeo(self.geo, attr_types).attr_test,
-			data_types=hou.attribData.String, sizes=1, ok_multi=ok_multi, ok_not_found=ok_not_found,
-			test_name_f=test_name_p_reserved
+			data_types=hou.attribData.String, sizes=1, ok_multi=ok_multi, ok_not_found=ok_not_found
 		)
 		return [
 			test_attr_f(attr_nm)

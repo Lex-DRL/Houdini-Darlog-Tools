@@ -247,11 +247,11 @@ class ChannelsPerModeBlock:
 
 			nice_nm = channel_labels_dict.get(key, key)
 			src_nm = test_name_no_reserved(
-				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel'
+				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel', split_by_spaces=True
 			)
 			src_ch_dict[key] = '' if key not in src_required_ch else src_nm
 			trg_ch_dict[key] = '' if key not in trg_required_ch else test_name_no_reserved(
-				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel',
+				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel', split_by_spaces=True,
 				default_name=src_nm, default_name_always_ok=True
 			)
 
@@ -296,7 +296,7 @@ class InputProcessor:
 		]:
 			udim_do = bool(udim_do)
 			data_dict[data_key]['do'] = udim_do
-			name = test_name_p_reserved(name, nice_nm, default_name='', default_name_always_ok=True)
+			name = test_name_p_reserved(name, nice_nm, default_name='', default_name_always_ok=True, split_by_spaces=True)
 			if not (udim_do and name):
 				continue
 			assert bool(name) and udim_do
@@ -393,10 +393,10 @@ class InputProcessor:
 
 			nice_nm = self.channel_labels.get(key, key)
 			src_name = test_name_no_reserved(
-				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel'
+				hou.evalParm(src_parm), 'source {}'.format(nice_nm), entity_type='channel', split_by_spaces=True
 			)
 			trg_name = test_name_no_reserved(
-				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel',
+				hou.evalParm(trg_parm), 'target {}'.format(nice_nm), entity_type='channel', split_by_spaces=True,
 				default_name=src_name, default_name_always_ok=True
 			)
 			self.data_dict['srcCh'][key] = src_name
