@@ -1,4 +1,8 @@
 # encoding: utf-8
+"""
+Python code for `texTransfer` sop node.
+"""
+
 __author__ = 'Lex Darlog (DRL)'
 
 from . import __pip_requirements as _pip_req
