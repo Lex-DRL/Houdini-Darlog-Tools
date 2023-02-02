@@ -61,6 +61,53 @@ def catch_error_message(
 		return e, get_error_message(e, default=default)
 
 
+def catch(
+	func=None,  # type: _t.Callable
+	with_message=None,  # type: _t.Optional[_t.Callable[[str, ...], _T]]
+	with_error=None,  # type: _t.Optional[_t.Callable[[_T_Exception, ...], _T]]
+	message_default='',  # type: _t.Any
+	error_types=any_exception  # type: _t.Tuple[_t.Type[_T_Exception], ...]
+):
+	"""
+	Convenient decorator catching any of the provided exception types and calling an alternative function instead,
+	passing either error message or error itself to it.
+	"""
+
+	def wrap(
+		f  # type: _t.Callable
+	):
+		def catch_and_do_nothing(*args, **kwargs):
+			try:
+				return f(*args, **kwargs)
+			except error_types:
+				return None
+
+		def catch_error(*args, **kwargs):
+			try:
+				return f(*args, **kwargs)
+			except error_types as e:
+				return with_error(e, *args, **kwargs)
+
+		def catch_message(*args, **kwargs):
+			try:
+				return f(*args, **kwargs)
+			except error_types as e:
+				return with_message(get_error_message(e, default=message_default), *args, **kwargs)
+
+		new_f = catch_message if callable(with_message) else (
+			catch_error if callable(with_error) else catch_and_do_nothing
+		)
+		try:
+			new_f.__name__ = f.__name__
+		except any_exception:
+			pass
+		return new_f
+
+	if func is None:
+		return wrap
+	return wrap(func)
+
+
 def get_error_message(error, default=None):  # type: (_t_Exception, _T) -> _t.Union[_T, _t.AnyStr]
 	"""Get a message from an error regardless of it's type."""
 	if isinstance(error, _hou.Error):
