@@ -622,3 +622,138 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 			test_attr_f(attr_nm)
 			for attr_nm in _attr_names_gen(attr_names)
 		]
+
+
+_vex_float_literals_by_size = (
+	{
+		0: 'f[]',
+		1: 'f',
+		2: 'u',
+		3: 'v',
+		4: 'p',
+		9: '3',
+		16: '4'
+	},
+	{
+		0: 'f[]',
+		1: 'f[]',
+		2: 'u[]',
+		3: 'v[]',
+		4: 'p[]',
+		9: '3[]',
+		16: '4[]'
+	},
+)
+_vex_i = 'i'
+_vex_i_array = 'i[]'
+_vex_s = 's'
+_vex_s_array = 's[]'
+
+
+def detect_vex_literal(dt, size, is_array):  # type: (hou.attribData, int, bool) -> str
+	"""Turn attribute properties to an actual VEX type-literal, like 's[]' or 'v'."""
+	if dt not in _all_attr_datatypes:
+		raise TypeError(_format("Not a datatype: {}", dt))
+	size = assert_arg_type(size, int)
+
+	if dt == hou.attribData.String:
+		return _vex_s_array if (is_array or size != 1) else _vex_s
+	if dt == hou.attribData.Int:
+		return _vex_i_array if (is_array or size != 1) else _vex_i
+
+	# Float types
+	float_type_map = _vex_float_literals_by_size[bool(is_array)]  # type: _t.Dict[int, str]
+	try:
+		return float_type_map[size]
+	except KeyError:
+		raise ValueError(_format("Unsupported VEX vector size: {}", size))
+
+
+def attr_vex_literal(attr):  # type: (_t.Optional[hou.Attrib]) -> str
+	attr = assert_arg_type(attr, hou.Attrib)
+	return detect_vex_literal(attr.dataType(), attr.size(), attr.isArrayType())
+
+
+_vex_literals_to_types = {  # https://www.sidefx.com/docs/houdini/vex/snippets.html#attributes
+	'i': 'int',
+	'f': 'float',
+	'u': 'vector2',
+	'v': 'vector',
+	'p': 'vector4',
+	'2': 'matrix2',
+	'3': 'matrix3',
+	'4': 'matrix',
+	's': 'string',
+	'd': 'dict',
+
+	'i[]': 'int[]',
+	'f[]': 'float[]',
+	'u[]': 'vector2[]',
+	'v[]': 'vector[]',
+	'p[]': 'vector4[]',
+	'2[]': 'matrix2[]',
+	'3[]': 'matrix3[]',
+	'4[]': 'matrix[]',
+	's[]': 'string[]',
+	'd[]': 'dict[]',
+}
+_vex_types_to_literals = {t: l for l, t in _vex_literals_to_types.items()}
+
+
+def vex_literal_to_type(literal):  # type: (str) -> str
+	try:
+		return _vex_literals_to_types[literal]
+	except KeyError:
+		raise ValueError(_format("Unsupported VEX literal: {}", repr(literal)))
+
+
+def vex_type_to_literal(_type):  # type: (str) -> str
+	try:
+		return _vex_types_to_literals[_type]
+	except KeyError:
+		raise ValueError(_format("Unsupported VEX type: {}", repr(_type)))
+
+
+def detect_vex_type(dt, size, is_array):  # type: (hou.attribData, int, bool) -> str
+	return vex_literal_to_type(detect_vex_literal(dt, size, is_array))
+
+
+def attr_vex_type(attr):  # type: (_t.Optional[hou.Attrib]) -> str
+	attr = assert_arg_type(attr, hou.Attrib)
+	return detect_vex_type(attr.dataType(), attr.size(), attr.isArrayType())
+
+
+_ok_lossless_promotion_from_to = {
+	hou.attribType.Global: {
+		hou.attribType.Global: True,
+		hou.attribType.Prim: True,
+		hou.attribType.Point: True,
+		hou.attribType.Vertex: True
+	},
+	hou.attribType.Prim: {
+		hou.attribType.Global: False,
+		hou.attribType.Prim: True,
+		hou.attribType.Point: False,
+		hou.attribType.Vertex: True
+	},
+	hou.attribType.Point: {
+		hou.attribType.Global: False,
+		hou.attribType.Prim: False,
+		hou.attribType.Point: True,
+		hou.attribType.Vertex: True
+	},
+	hou.attribType.Vertex: {
+		hou.attribType.Global: False,
+		hou.attribType.Prim: False,
+		hou.attribType.Point: False,
+		hou.attribType.Vertex: True
+	},
+}
+
+
+def is_safe_promote(from_class, to_class):  # type: (...) -> bool
+	if from_class not in _ok_lossless_promotion_from_to:
+		raise TypeError(_format("Not a (from) attribute class: {}", from_class))
+	if to_class not in _ok_lossless_promotion_from_to:
+		raise TypeError(_format("Not a (to) attribute class: {}", to_class))
+	return _ok_lossless_promotion_from_to[from_class][to_class]
