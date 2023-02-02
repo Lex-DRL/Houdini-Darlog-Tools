@@ -9,6 +9,7 @@ from functools import partial as _partial
 from string import ascii_letters, digits
 
 from darlog_hou.errors import *
+from darlog_hou.errors import _assert_sop_node_geo
 from darlog_hou.py23 import str_format as _format
 
 try:
@@ -358,9 +359,7 @@ class AttribFuncsPerGeo:
 		return _format('{}({})', self.__class__.__name__, ', '.join(args))
 
 	def __set_geo(self, value):
-		if not isinstance(value, hou.Geometry):
-			raise TypeError(_format("Not a `hou.Geometry`: {}", repr(value)))
-		self.__geo = value
+		self.__geo = assert_arg_type(value, hou.Geometry)
 
 	def __set_attr_types(self, attr_tps_priority):
 		if not attr_tps_priority:
@@ -528,19 +527,16 @@ class NodeGeoProcessorBase(object):
 		self,
 		node,  # type: hou.SopNode
 	):
-		self.__node = node
-		self.__geo = None
+		self.__node = node = assert_sop_node(node)
+		self.__geo = _assert_sop_node_geo(node)
 
 	@property
 	def node(self):
-		return assert_arg_type(self.__node, hou.SopNode)  # type: hou.SopNode
+		return self.__node
 
 	@property
 	def geo(self):
-		geo = self.__geo
-		if geo is None:
-			self.__geo = geo = assert_arg_type(self.node.geometry(), hou.Geometry)  # type: hou.Geometry
-		return geo
+		return self.__geo
 
 
 def _attr_names_gen(

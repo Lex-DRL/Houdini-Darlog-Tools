@@ -43,6 +43,45 @@ def assert_str(val):  # type: (...) -> str
 	return val
 
 
+def assert_sop_node(node, error_name=''):  # type: (...) -> _hou.SopNode
+	if node is None:
+		raise TypeError(_format("No SOP node provided as {}", error_name) if error_name else 'No SOP node provided')
+	if not isinstance(node, _hou.SopNode):
+		raise TypeError(
+			_format("Not a SOP node ({}): {}", error_name, repr(node))
+			if error_name else
+			_format("Not a SOP node: {}", repr(node))
+		)
+	return node
+
+
+def _assert_sop_node_geo(node, error_name=''):  # type: (_hou.SopNode, str) -> _hou.Geometry
+	geo = node.geometry()  # type: _hou.Geometry
+	if not geo:
+		raise ValueError(
+			_format("SOP node ({}) has no geometry: {}", error_name, repr(node))
+			if error_name else
+			_format("SOP node has no geometry: {}", repr(node))
+		)
+	return geo
+
+
+def sop_node_geo(node, error_name=''):  # type: (...) -> _hou.Geometry
+	return _assert_sop_node_geo(assert_sop_node(node, error_name), error_name)
+
+
+def sop_input_geo(node, index=0, error_name=''):  # type: (...) -> _hou.Geometry
+	node = assert_sop_node(node, error_name)
+	geo = node.inputGeometry(index)  # type: _hou.Geometry
+	if not geo:
+		raise ValueError(
+			_format("SOP node ({}) has no geometry at input {}: {}", error_name, index, repr(node))
+			if error_name else
+			_format("SOP node has no geometry at input {}: {}", index, repr(node))
+		)
+	return geo
+
+
 def catch_error_message(
 	func,  # type: _t.Callable
 	default=None,  # type: _T
