@@ -108,6 +108,27 @@ def catch(
 	return wrap(func)
 
 
+def catch_and_return_error_message(
+	func=None,  # type: _t.Callable
+	format=':{}',
+):
+	"""
+	A shorthand decorator for:
+
+	`catch(with_message=lambda m, *a, **kw: _format(format, m))`
+	"""
+	if not format:
+		format = ''
+
+	def error_formatter(
+		m,  # type: str
+		*a, **kw
+	):
+		return _format(format, m)
+
+	return catch(func, with_message=error_formatter)
+
+
 def get_error_message(error, default=None):  # type: (_t_Exception, _T) -> _t.Union[_T, _t.AnyStr]
 	"""Get a message from an error regardless of it's type."""
 	if isinstance(error, _hou.Error):
