@@ -6,6 +6,7 @@ Various utility functions to facilitate work with geometry attributes.
 import hou
 
 from functools import partial as _partial
+from itertools import chain as _chain
 from string import ascii_letters, digits
 
 from darlog_hou.errors import *
@@ -16,6 +17,7 @@ try:
 	import typing as _t
 
 	_t_attr_getter = _t.Callable[[str], hou.Attrib]
+	_t_attrs_tuple_getter = _t.Callable[[], _t.Tuple[hou.Attrib, ...]]
 	_t_at_arg = _t.Optional[_t.Union[_t.Sequence[hou.attribType], hou.attribType]]
 	_t_dt_arg = _t.Optional[_t.Union[_t.Iterable[hou.attribData], hou.attribData]]
 	_t_sz_arg = _t.Optional[_t.Union[_t.Iterable[int], int]]
@@ -343,6 +345,7 @@ class AttribFuncsPerGeo:
 		self.__attr_data_types = None  # type: _t.Set[hou.attribData]
 
 		self.__attr_getters = None  # type: _t.Dict[hou.attribType, _t_attr_getter]
+		self.__attrs_tuple_getters = None  # type: _t.Dict[hou.attribType, _t_attrs_tuple_getter]
 
 		self.__set_geo(geo)
 		self.__set_attr_types(attr_types)
@@ -393,15 +396,25 @@ class AttribFuncsPerGeo:
 		# Houdini 18.5 with py3 (rather than 17.5/py2) crashes with `Segmentation fault` error
 		# if we use hou.Geometry.* methods here (rather than geo.* methods).
 		# So the dict can't be changed to a geometry-independent one, we NEED to use methods on the actual instance:
-		all_getters = {
+		all_attr_getters = {
 			hou.attribType.Vertex: geo.findVertexAttrib,
 			hou.attribType.Prim: geo.findPrimAttrib,
 			hou.attribType.Point: geo.findPointAttrib,
 			hou.attribType.Global: geo.findGlobalAttrib,
 		}  # type: _t.Dict[hou.attribType, _t_attr_getter]
 		self.__attr_getters = {
-			k: all_getters[k] for k in self.__attr_types_priority
+			k: all_attr_getters[k] for k in self.__attr_types_priority
 		}  # type: _t.Dict[hou.attribType, _t_attr_getter]
+
+		all_attrs_tuple_getters = {
+			hou.attribType.Vertex: geo.vertexAttribs,
+			hou.attribType.Prim: geo.primAttribs,
+			hou.attribType.Point: geo.pointAttribs,
+			hou.attribType.Global: geo.globalAttribs,
+		}  # type: _t.Dict[hou.attribType, _t_attrs_tuple_getter]
+		self.__attrs_tuple_getters = {
+			k: all_attrs_tuple_getters[k] for k in self.__attr_types_priority
+		}  # type: _t.Dict[hou.attribType, _t_attrs_tuple_getter]
 
 	@property
 	def geo(self):  # type: () -> hou.Geometry
@@ -420,6 +433,17 @@ class AttribFuncsPerGeo:
 	def attr_types(self, attr_tps_priority):  # type: (_t_at_arg) -> ...
 		self.__set_attr_types(attr_tps_priority)
 		self.__rebuild_attr_getters()
+
+	def __all_attribs_gen(self):  # type: () -> _t.Iterable[hou.Attrib]
+		tuples_of_attribs_per_class = (
+			self.__attrs_tuple_getters[attr_cls]()
+			for attr_cls in self.attr_types
+		)
+		return _chain(*tuples_of_attribs_per_class)
+
+	def all_attribs(self):  # type: () -> _t.Tuple[hou.Attrib, ...]
+		"""All attribs (respect `attr_types` restriction)."""
+		return tuple(self.__all_attribs_gen())
 
 	def attr_find(
 		self,
@@ -515,6 +539,16 @@ class AttribFuncsPerGeo:
 		_test_attr_sz(attr, sizes, error_attr_nice_nm=error_attr_nice_nm)
 
 		return attr
+
+	def next_free_name(
+		self,
+		name,  # type: str
+		error_attr_nice_nm='',  # type: str
+		suffix='_',
+	):
+		"""Generate a name for attrib which is not yet used in the geo (check only attribs of classes in `attr_types`)."""
+		taken_names = {x.name() for x in self.__all_attribs_gen()}  # type: _t.Set[str]
+		return next_free_name(name, taken_names, error_attr_nice_nm, entity_type='attribute', allow_p=False, suffix=suffix)
 
 
 class NodeGeoProcessorBase(object):
@@ -757,3 +791,27 @@ def is_safe_promote(from_class, to_class):  # type: (...) -> bool
 	if to_class not in _ok_lossless_promotion_from_to:
 		raise TypeError(_format("Not a (to) attribute class: {}", to_class))
 	return _ok_lossless_promotion_from_to[from_class][to_class]
+
+
+def next_free_name(
+	name,  # type: str
+	taken_names,  # type: _t.Set[str]
+	error_attr_nice_nm='',  # type: str
+	entity_type='attribute',  # type: str
+	allow_p=False,
+	suffix='_',
+):
+	suffix = test_name_no_reserved(
+		suffix,
+		_format('{} suffix', error_attr_nice_nm) if error_attr_nice_nm else 'suffix',
+		default_name='_', default_name_always_ok=True,
+		entity_type=entity_type
+	)
+	if not suffix:
+		suffix = '_'
+
+	name_tester = test_name_no_reserved if allow_p else test_name_p_reserved
+	name = name_tester(name, error_attr_nice_nm, entity_type=entity_type, split_by_spaces=True)
+	while name in taken_names:
+		name = _format('{}{}', name, suffix)
+	return name
