@@ -109,7 +109,7 @@ def _get_piece_attr(
 	in_geo = sop_input_geo(node_with_inputs, index)
 	attr_funcs = AttribFuncsPerGeo(in_geo, attr_types=attr_types)
 	attr = attr_funcs.attr_test(
-		attr_name, data_types=hou.attribData.String, sizes=1,
+		attr_name, data_types=(hou.attribData.Int, hou.attribData.String), sizes=1,
 		error_attr_nice_nm=_format('Piece (on {})', input_name),
 		test_name_f=test_name_no_reserved
 	)
@@ -135,13 +135,13 @@ def test_piece_attr(
 ):
 	"""
 	No errors:
-		- 'piece_attr(can be empty)/(int)src_class'
+		- 'piece_attr(can be empty)/(int)src_class/type_literal'
 
 	On error:
 		- ':...', where '...' is an error message (might be empty).
 	"""
 	if not piece_do or main_attrs_str.startswith(':'):
-		return '/0'
+		return '/0/i'
 
 	uv_attr_name, in_class_str, out_class_str, out_attr_name, out_type = main_attrs_str.split('/')
 	# out_class = _attr_class_enum[int(out_class_str)]
@@ -161,4 +161,12 @@ def test_piece_attr(
 	src_piece_attr = _get_piece_attr(node_with_inputs, piece_attr_name, hou.attribType.Prim, 1, 'source')
 	trg_piece_attr = _get_piece_attr(node_with_inputs, piece_attr_name, None, 0, 'target')
 	trg_piece_class_i = _piece_attr_class_int(trg_piece_attr)
-	return _format('{}/{}', piece_attr_name, trg_piece_class_i)
+
+	piece_dt = trg_piece_attr.dataType()
+	if src_piece_attr.dataType() != piece_dt:
+		raise ValueError(_format(
+			"'{}' piece attribute is {{{}}} on source mesh, but {{{}}} on target",
+			piece_attr_name, src_piece_attr.dataType(), piece_dt
+		))
+
+	return _format('{}/{}/{}', piece_attr_name, trg_piece_class_i, attr_vex_literal(trg_piece_attr))
