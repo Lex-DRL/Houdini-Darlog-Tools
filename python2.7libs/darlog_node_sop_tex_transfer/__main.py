@@ -1,6 +1,7 @@
 # encoding: utf-8
 
 import hou
+from itertools import chain as _chain
 from collections import OrderedDict
 from json import dumps
 
@@ -18,8 +19,14 @@ import typing as _t
 _O = _t.Optional
 _U = _t.Union
 
+# noinspection PyBroadException
+try:
+	_t_str = (str, unicode)
+except Exception:
+	_t_str = (str, )
 
-_channels_keys = (
+
+_channel_keys = (
 	'color',
 	'alpha',
 	'colorAlpha',
@@ -31,34 +38,40 @@ _channels_keys = (
 	'pbr',
 	'nm',
 )
+_target_only_channel_keys = (
+	'uvTex',
+)
+_channel_labels_map = {
+	'color': 'Base Color',
+	'alpha': 'Base Alpha',
+	'colorAlpha': 'Base Color+Alpha',
+	'em': 'Emission',
+	'uvTex': 'UV-map',
+	'metal': 'Metallic',
+	'smooth': 'Smoothness',
+	'metalSmooth': 'Metal+Smooth',
+	'ao': 'AO',
+	'pbr': 'PBR',
+	'nm': 'Normal Map',
+}
 
 
 def channel_labels():
-	return {
-		'color': 'Base Color',
-		'alpha': 'Base Alpha',
-		'colorAlpha': 'Base Color+Alpha',
-		'em': 'Emission',
-		'metal': 'Metallic',
-		'smooth': 'Smoothness',
-		'metalSmooth': 'Metal+Smooth',
-		'ao': 'AO',
-		'pbr': 'PBR',
-		'nm': 'Normal Map',
-	}
+	return dict(_channel_labels_map)
 
 
-def channels_dict(val):
-	return OrderedDict((k, val) for k in _channels_keys)
+def channels_dict(val, is_target=False):
+	keys = _channel_keys if not is_target else _chain(_channel_keys, _target_only_channel_keys)
+	return OrderedDict((k, val) for k in keys)
 
 
-_mask_channels_keys = (
+_mask_channel_keys = (
 	'comb', '1', '2', '3', '4'
 )
 
 
 def mask_channels_dict(val):
-	return OrderedDict((k, val) for k in _mask_channels_keys)
+	return OrderedDict((k, val) for k in _mask_channel_keys)
 
 
 def mask_dict():
@@ -94,8 +107,10 @@ def out_dict_init():
 		('trgUVs', ''),
 		('trgUVs_isVtx', False),
 
-		('srcCh', channels_dict('')),
-		('trgCh', channels_dict('')),
+		('srcCh', channels_dict('', is_target=False)),
+		('trgCh', channels_dict('', is_target=True)),
+
+		('uvTex_ext', 'png'),
 
 		('baseColor', OrderedDict([
 			('in_mode', 0), ('out_mode', 0),
@@ -387,6 +402,7 @@ class InputProcessor:
 	def _main_on_off_channels(self):
 		for key, do_parm, src_parm, trg_parm in [
 			('em', "../emission_do", "../emission_src", "../emission_trg",),
+			('uvTex', "../uvTex_do", None, "../uvTex_trg",),
 			('nm', "../nm_do", "../nm_src", "../nm_trg",),
 		]:
 			chan_do = hou.evalParm(do_parm)  # type: int
@@ -394,14 +410,19 @@ class InputProcessor:
 				continue
 
 			nice_nm = self.channel_labels.get(key, key)
-			src_name = test_name_no_reserved(
-				hou.evalParm(src_parm), _format('source {}', nice_nm), entity_type='channel', split_by_spaces=True
-			)
+
+			if src_parm is not None:
+				src_name = test_name_no_reserved(
+					hou.evalParm(src_parm), _format('source {}', nice_nm), entity_type='channel', split_by_spaces=True
+				)
+				self.data_dict['srcCh'][key] = src_name
+			else:
+				src_name = ''
+
 			trg_name = test_name_no_reserved(
 				hou.evalParm(trg_parm), _format('target {}', nice_nm), entity_type='channel', split_by_spaces=True,
-				default_name=src_name, default_name_always_ok=True
+				default_name=src_name, default_name_always_ok=bool(src_name)
 			)
-			self.data_dict['srcCh'][key] = src_name
 			self.data_dict['trgCh'][key] = trg_name
 
 	def _main_ensure_out_channel_names_unique(self):
@@ -434,6 +455,26 @@ class InputProcessor:
 					ch=repr(ch), o1=seen[ch], o2=ch_label
 				))
 			seen[ch] = ch_label
+
+	def _main_override_out_channel_extensions(self):
+		base_path = hou.evalParm("../trgTex_base")  # type: str
+		if not isinstance(base_path, _t_str):
+			base_path = ''
+		base_parts = base_path.split('.')
+		base_ext = base_parts.pop().lower() if base_parts else ''
+
+		data_dict = self.data_dict
+
+		for channel_key, default in [
+			('uvTex', 'exr')
+		]:
+			default = base_ext if base_ext else default
+
+			data_key = _format("{}_ext", channel_key)
+			mode_parm_path = _format("../{}_filetype", channel_key)
+
+			mode = hou.evalParm(mode_parm_path)  # type: int
+			data_dict[data_key] = [default, 'png', 'exr'][mode]
 
 	def _main_nm_attribs(self):
 		data_dict = self.data_dict
@@ -549,6 +590,7 @@ class InputProcessor:
 		self._main_pbr_channels()
 		self._main_mask_channels()
 		self._main_ensure_out_channel_names_unique()
+		self._main_override_out_channel_extensions()
 		self._main_nm_attribs()
 		self._main_internal_attribs()
 		cleanup_out_data(self.data_dict, del_root_keys=False)
