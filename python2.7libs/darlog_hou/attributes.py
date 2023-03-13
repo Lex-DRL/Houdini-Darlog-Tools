@@ -6,15 +6,18 @@ Various utility functions to facilitate work with geometry attributes.
 import hou
 
 from functools import partial as _partial
+from itertools import chain as _chain
 from string import ascii_letters, digits
 
 from darlog_hou.errors import *
+from darlog_hou.errors import _assert_sop_node_geo
 from darlog_hou.py23 import str_format as _format
 
 try:
 	import typing as _t
 
 	_t_attr_getter = _t.Callable[[str], hou.Attrib]
+	_t_attrs_tuple_getter = _t.Callable[[], _t.Tuple[hou.Attrib, ...]]
 	_t_at_arg = _t.Optional[_t.Union[_t.Sequence[hou.attribType], hou.attribType]]
 	_t_dt_arg = _t.Optional[_t.Union[_t.Iterable[hou.attribData], hou.attribData]]
 	_t_sz_arg = _t.Optional[_t.Union[_t.Iterable[int], int]]
@@ -342,6 +345,7 @@ class AttribFuncsPerGeo:
 		self.__attr_data_types = None  # type: _t.Set[hou.attribData]
 
 		self.__attr_getters = None  # type: _t.Dict[hou.attribType, _t_attr_getter]
+		self.__attrs_tuple_getters = None  # type: _t.Dict[hou.attribType, _t_attrs_tuple_getter]
 
 		self.__set_geo(geo)
 		self.__set_attr_types(attr_types)
@@ -358,9 +362,7 @@ class AttribFuncsPerGeo:
 		return _format('{}({})', self.__class__.__name__, ', '.join(args))
 
 	def __set_geo(self, value):
-		if not isinstance(value, hou.Geometry):
-			raise TypeError(_format("Not a `hou.Geometry`: {}", repr(value)))
-		self.__geo = value
+		self.__geo = assert_arg_type(value, hou.Geometry)
 
 	def __set_attr_types(self, attr_tps_priority):
 		if not attr_tps_priority:
@@ -394,15 +396,25 @@ class AttribFuncsPerGeo:
 		# Houdini 18.5 with py3 (rather than 17.5/py2) crashes with `Segmentation fault` error
 		# if we use hou.Geometry.* methods here (rather than geo.* methods).
 		# So the dict can't be changed to a geometry-independent one, we NEED to use methods on the actual instance:
-		all_getters = {
+		all_attr_getters = {
 			hou.attribType.Vertex: geo.findVertexAttrib,
 			hou.attribType.Prim: geo.findPrimAttrib,
 			hou.attribType.Point: geo.findPointAttrib,
 			hou.attribType.Global: geo.findGlobalAttrib,
 		}  # type: _t.Dict[hou.attribType, _t_attr_getter]
 		self.__attr_getters = {
-			k: all_getters[k] for k in self.__attr_types_priority
+			k: all_attr_getters[k] for k in self.__attr_types_priority
 		}  # type: _t.Dict[hou.attribType, _t_attr_getter]
+
+		all_attrs_tuple_getters = {
+			hou.attribType.Vertex: geo.vertexAttribs,
+			hou.attribType.Prim: geo.primAttribs,
+			hou.attribType.Point: geo.pointAttribs,
+			hou.attribType.Global: geo.globalAttribs,
+		}  # type: _t.Dict[hou.attribType, _t_attrs_tuple_getter]
+		self.__attrs_tuple_getters = {
+			k: all_attrs_tuple_getters[k] for k in self.__attr_types_priority
+		}  # type: _t.Dict[hou.attribType, _t_attrs_tuple_getter]
 
 	@property
 	def geo(self):  # type: () -> hou.Geometry
@@ -421,6 +433,17 @@ class AttribFuncsPerGeo:
 	def attr_types(self, attr_tps_priority):  # type: (_t_at_arg) -> ...
 		self.__set_attr_types(attr_tps_priority)
 		self.__rebuild_attr_getters()
+
+	def __all_attribs_gen(self):  # type: () -> _t.Iterable[hou.Attrib]
+		tuples_of_attribs_per_class = (
+			self.__attrs_tuple_getters[attr_cls]()
+			for attr_cls in self.attr_types
+		)
+		return _chain(*tuples_of_attribs_per_class)
+
+	def all_attribs(self):  # type: () -> _t.Tuple[hou.Attrib, ...]
+		"""All attribs (respect `attr_types` restriction)."""
+		return tuple(self.__all_attribs_gen())
 
 	def attr_find(
 		self,
@@ -517,6 +540,16 @@ class AttribFuncsPerGeo:
 
 		return attr
 
+	def next_free_name(
+		self,
+		name,  # type: str
+		error_attr_nice_nm='',  # type: str
+		suffix='_',
+	):
+		"""Generate a name for attrib which is not yet used in the geo (check only attribs of classes in `attr_types`)."""
+		taken_names = {x.name() for x in self.__all_attribs_gen()}  # type: _t.Set[str]
+		return next_free_name(name, taken_names, error_attr_nice_nm, entity_type='attribute', allow_p=False, suffix=suffix)
+
 
 class NodeGeoProcessorBase(object):
 	"""
@@ -528,19 +561,16 @@ class NodeGeoProcessorBase(object):
 		self,
 		node,  # type: hou.SopNode
 	):
-		self.__node = node
-		self.__geo = None
+		self.__node = node = assert_sop_node(node)
+		self.__geo = _assert_sop_node_geo(node)
 
 	@property
 	def node(self):
-		return assert_arg_type(self.__node, hou.SopNode)  # type: hou.SopNode
+		return self.__node
 
 	@property
 	def geo(self):
-		geo = self.__geo
-		if geo is None:
-			self.__geo = geo = assert_arg_type(self.node.geometry(), hou.Geometry)  # type: hou.Geometry
-		return geo
+		return self.__geo
 
 
 def _attr_names_gen(
@@ -626,3 +656,162 @@ class CommonAttribsValidator(NodeGeoProcessorBase):
 			test_attr_f(attr_nm)
 			for attr_nm in _attr_names_gen(attr_names)
 		]
+
+
+_vex_float_literals_by_size = (
+	{
+		0: 'f[]',
+		1: 'f',
+		2: 'u',
+		3: 'v',
+		4: 'p',
+		9: '3',
+		16: '4'
+	},
+	{
+		0: 'f[]',
+		1: 'f[]',
+		2: 'u[]',
+		3: 'v[]',
+		4: 'p[]',
+		9: '3[]',
+		16: '4[]'
+	},
+)
+_vex_i = 'i'
+_vex_i_array = 'i[]'
+_vex_s = 's'
+_vex_s_array = 's[]'
+
+
+def detect_vex_literal(dt, size, is_array):  # type: (hou.attribData, int, bool) -> str
+	"""Turn attribute properties to an actual VEX type-literal, like 's[]' or 'v'."""
+	if dt not in _all_attr_datatypes:
+		raise TypeError(_format("Not a datatype: {}", dt))
+	size = assert_arg_type(size, int)
+
+	if dt == hou.attribData.String:
+		return _vex_s_array if (is_array or size != 1) else _vex_s
+	if dt == hou.attribData.Int:
+		return _vex_i_array if (is_array or size != 1) else _vex_i
+
+	# Float types
+	float_type_map = _vex_float_literals_by_size[bool(is_array)]  # type: _t.Dict[int, str]
+	try:
+		return float_type_map[size]
+	except KeyError:
+		raise ValueError(_format("Unsupported VEX vector size: {}", size))
+
+
+def attr_vex_literal(attr):  # type: (_t.Optional[hou.Attrib]) -> str
+	attr = assert_arg_type(attr, hou.Attrib)
+	return detect_vex_literal(attr.dataType(), attr.size(), attr.isArrayType())
+
+
+_vex_literals_to_types = {  # https://www.sidefx.com/docs/houdini/vex/snippets.html#attributes
+	'i': 'int',
+	'f': 'float',
+	'u': 'vector2',
+	'v': 'vector',
+	'p': 'vector4',
+	'2': 'matrix2',
+	'3': 'matrix3',
+	'4': 'matrix',
+	's': 'string',
+	'd': 'dict',
+
+	'i[]': 'int[]',
+	'f[]': 'float[]',
+	'u[]': 'vector2[]',
+	'v[]': 'vector[]',
+	'p[]': 'vector4[]',
+	'2[]': 'matrix2[]',
+	'3[]': 'matrix3[]',
+	'4[]': 'matrix[]',
+	's[]': 'string[]',
+	'd[]': 'dict[]',
+}
+_vex_types_to_literals = {t: l for l, t in _vex_literals_to_types.items()}
+
+
+def vex_literal_to_type(literal):  # type: (str) -> str
+	try:
+		return _vex_literals_to_types[literal]
+	except KeyError:
+		raise ValueError(_format("Unsupported VEX literal: {}", repr(literal)))
+
+
+def vex_type_to_literal(_type):  # type: (str) -> str
+	try:
+		return _vex_types_to_literals[_type]
+	except KeyError:
+		raise ValueError(_format("Unsupported VEX type: {}", repr(_type)))
+
+
+def detect_vex_type(dt, size, is_array):  # type: (hou.attribData, int, bool) -> str
+	return vex_literal_to_type(detect_vex_literal(dt, size, is_array))
+
+
+def attr_vex_type(attr):  # type: (_t.Optional[hou.Attrib]) -> str
+	attr = assert_arg_type(attr, hou.Attrib)
+	return detect_vex_type(attr.dataType(), attr.size(), attr.isArrayType())
+
+
+_ok_lossless_promotion_from_to = {
+	hou.attribType.Global: {
+		hou.attribType.Global: True,
+		hou.attribType.Prim: True,
+		hou.attribType.Point: True,
+		hou.attribType.Vertex: True
+	},
+	hou.attribType.Prim: {
+		hou.attribType.Global: False,
+		hou.attribType.Prim: True,
+		hou.attribType.Point: False,
+		hou.attribType.Vertex: True
+	},
+	hou.attribType.Point: {
+		hou.attribType.Global: False,
+		hou.attribType.Prim: False,
+		hou.attribType.Point: True,
+		hou.attribType.Vertex: True
+	},
+	hou.attribType.Vertex: {
+		hou.attribType.Global: False,
+		hou.attribType.Prim: False,
+		hou.attribType.Point: False,
+		hou.attribType.Vertex: True
+	},
+}
+
+
+def is_safe_promote(from_class, to_class):  # type: (...) -> bool
+	if from_class not in _ok_lossless_promotion_from_to:
+		raise TypeError(_format("Not a (from) attribute class: {}", from_class))
+	if to_class not in _ok_lossless_promotion_from_to:
+		raise TypeError(_format("Not a (to) attribute class: {}", to_class))
+	return _ok_lossless_promotion_from_to[from_class][to_class]
+
+
+def next_free_name(
+	name,  # type: str
+	taken_names,  # type: _t.Set[str]
+	error_attr_nice_nm='',  # type: str
+	entity_type='attribute',  # type: str
+	allow_p=False,
+	suffix='_',
+):
+	suffix = test_name_no_reserved(
+		suffix,
+		_format('{} suffix', error_attr_nice_nm) if error_attr_nice_nm else 'suffix',
+		default_name='_', default_name_always_ok=True,
+		entity_type=entity_type
+	)
+	if not suffix:
+		suffix = '_'
+
+	name_tester = test_name_no_reserved if allow_p else test_name_p_reserved
+	name = name_tester(name, error_attr_nice_nm, entity_type=entity_type, split_by_spaces=True)
+	while name in taken_names:
+		name = _format('{}{}', name, suffix)
+	return name
