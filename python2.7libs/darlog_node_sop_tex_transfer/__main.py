@@ -38,15 +38,17 @@ _channel_keys = (
 	'pbr',
 	'nm',
 )
-_target_only_channel_keys = (
+_out_only_channel_keys = (
 	'uvTex',
+	'uvCell',
 )
 _channel_labels_map = {
 	'color': 'Base Color',
 	'alpha': 'Base Alpha',
 	'colorAlpha': 'Base Color+Alpha',
 	'em': 'Emission',
-	'uvTex': 'UV-map',
+	'uvTex': 'source-UV-map',
+	'uvCell': 'source-UV-cell',
 	'metal': 'Metallic',
 	'smooth': 'Smoothness',
 	'metalSmooth': 'Metal+Smooth',
@@ -61,7 +63,7 @@ def channel_labels():
 
 
 def channels_dict(val, is_target=False):
-	keys = _channel_keys if not is_target else _chain(_channel_keys, _target_only_channel_keys)
+	keys = _channel_keys if not is_target else _chain(_channel_keys, _out_only_channel_keys)
 	return OrderedDict((k, val) for k in keys)
 
 
@@ -110,7 +112,8 @@ def out_dict_init():
 		('srcCh', channels_dict('', is_target=False)),
 		('trgCh', channels_dict('', is_target=True)),
 
-		('uvTex_ext', 'png'),
+		('uvTex_ext', 'exr'),
+		('uvCell_ext', 'exr'),
 
 		('baseColor', OrderedDict([
 			('in_mode', 0), ('out_mode', 0),
@@ -403,6 +406,7 @@ class InputProcessor:
 		for key, do_parm, src_parm, trg_parm in [
 			('em', "../emission_do", "../emission_src", "../emission_trg",),
 			('uvTex', "../uvTex_do", None, "../uvTex_trg",),
+			('uvCell', "../uvCell_do", None, "../uvCell_trg",),
 			('nm', "../nm_do", "../nm_src", "../nm_trg",),
 		]:
 			chan_do = hou.evalParm(do_parm)  # type: int
@@ -465,15 +469,11 @@ class InputProcessor:
 
 		data_dict = self.data_dict
 
-		for channel_key, default in [
-			('uvTex', 'exr')
+		for data_key, mode, default in [
+			('uvTex_ext', hou.evalParm("../uvTex_filetype"), 'exr'),
+			('uvCell_ext', 2, 'exr'),
 		]:
 			default = base_ext if base_ext else default
-
-			data_key = _format("{}_ext", channel_key)
-			mode_parm_path = _format("../{}_filetype", channel_key)
-
-			mode = hou.evalParm(mode_parm_path)  # type: int
 			data_dict[data_key] = [default, 'png', 'exr'][mode]
 
 	def _main_nm_attribs(self):
