@@ -42,8 +42,7 @@ def rerun_as_admin():
 
 def main(symlink_name='python3.7libs', src_dir='python2.7libs'):
 	print(
-		"Creating a symlink: {} -> {}\n"
-		"- to make the lib work both in Python 2 and 3 versions of Houdini.\n"
+		"\nCreating a symlink: {} -> {}\n"
 		"".format(repr(src_dir), repr(symlink_name))
 	)
 	
