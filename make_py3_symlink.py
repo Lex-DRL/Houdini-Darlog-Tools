@@ -42,8 +42,9 @@ def rerun_as_admin():
 
 def main(symlink_name='python3.7libs', src_dir='python2.7libs'):
 	print(
-		"Creating a symlink: `python3.7libs` -> `python2.7libs`\n"
+		"Creating a symlink: {} -> {}\n"
 		"- to make the lib work both in Python 2 and 3 versions of Houdini.\n"
+		"".format(repr(src_dir), repr(symlink_name))
 	)
 	
 	dir_path = _path.dirname(_path.realpath(__file__))
@@ -69,7 +70,7 @@ def main(symlink_name='python3.7libs', src_dir='python2.7libs'):
 		while user_input not in {'', 'y', 'Y', 'n', 'N'}:
 			user_input = input("Recreate [Y] or exit [n]? >")
 		if user_input in {'n', 'N'}:
-			print("\nSymlink NOT created.")
+			print("\nSymlink {} NOT created.".format(repr(symlink_name)))
 			return
 		
 		_os.remove(symlink_full_path)
@@ -78,7 +79,7 @@ def main(symlink_name='python3.7libs', src_dir='python2.7libs'):
 	try:
 		# Py3
 		_os.symlink(src_dir, symlink_full_path, target_is_directory=True)
-	except:
+	except Exception:
 		# Py2
 		_os.symlink(src_dir, symlink_full_path)
 
@@ -92,7 +93,13 @@ def _run():
 		return
 	
 	try:
-		main()
+		for d in (
+			'python3.7libs',
+			'python3.8libs',
+			'python3.9libs',
+			'python3.10libs',
+		):
+			main(d)
 	except OSError as e:
 		error_str = e.strerror
 		error_str = '[ERROR {}] {}'.format(
