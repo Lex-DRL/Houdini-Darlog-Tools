@@ -7,6 +7,7 @@ import hou as _hou
 from itertools import chain as _chain
 import errno as _errno
 import os as _os
+from traceback import format_exception as _format_exception
 
 from darlog_hou.py23 import str_format as _format
 
@@ -232,6 +233,22 @@ def format_os_error(
 		if code_str
 		else pre_tab + err.filename
 	)
+
+
+def format_error(err, tab_level=0):
+	lines = _format_exception(type(err), err, err.__traceback__)
+	tab_level = max(int(tab_level), 0)
+	try:
+		pattern = '{}{}'.format('\t' * tab_level, '{}')
+		lines = [pattern.format(x) for x in lines]
+	except any_exception:
+		pattern = u'{}{}'.format('\t' * tab_level, '{}')
+		lines = [pattern.format(x) for x in lines]
+
+	try:
+		return ''.join(lines).rstrip('\n\r')
+	except any_exception:
+		return u''.join(lines).rstrip('\n\r')
 
 
 def _update_builtin_error_message(
