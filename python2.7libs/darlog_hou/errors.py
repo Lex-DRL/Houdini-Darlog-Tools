@@ -5,6 +5,8 @@
 import hou as _hou
 
 from itertools import chain as _chain
+import errno as _errno
+import os as _os
 
 from darlog_hou.py23 import str_format as _format
 
@@ -192,6 +194,44 @@ def get_error_message(error, default=None):  # type: (_t_Exception, _T) -> _t.Un
 		return msg() if callable(msg) else msg
 	except any_exception:
 		return default
+
+
+def default_oserror(errno, *oserror_args):
+	"""
+	Creates an `OSError` with the default message for the given errno.
+	The first optional argument is the error's path.
+	"""
+	all_args = [errno, _os.strerror(errno)]
+	all_args.extend(oserror_args)
+	oserror_args = tuple(all_args)
+	return OSError(*oserror_args)
+
+
+def format_os_error(
+	err,  # type: OSError
+	use_tabs=True
+):
+	if not isinstance(err, OSError):
+		return get_error_message(err, '')
+
+	code_str = (
+		_os.strerror(err.errno)
+		# errno.errorcode[err.errno]
+		if (err.errno in _errno.errorcode.keys())
+		else ''
+	)
+	if use_tabs:
+		pre_tab = '\t'
+		mid_tab = ':\t'
+	else:
+		pre_tab = ''
+		mid_tab = ': '
+
+	return (
+		code_str + mid_tab + err.filename
+		if code_str
+		else pre_tab + err.filename
+	)
 
 
 def _update_builtin_error_message(
