@@ -179,10 +179,14 @@ def get_error_message(error, default=None):  # type: (_t_Exception, _T) -> _t.Un
 	except any_exception:
 		pass
 
-	try:
-		msg = error.args[0]
-	except any_exception:
-		pass
+	if msg is None:
+		try:
+			msg = error.args[0]
+		except any_exception:
+			pass
+
+	if msg is None:
+		msg = default
 
 	try:
 		return msg() if callable(msg) else msg
