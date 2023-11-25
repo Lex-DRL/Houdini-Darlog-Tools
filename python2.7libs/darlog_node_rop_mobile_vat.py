@@ -64,8 +64,8 @@ def _vector_parm_val(asset_node, path_pattern, components):  # type: (hou.RopNod
 
 def export_json_config(asset_node):  # type: (hou.RopNode) -> None
 	json_path = asset_node.evalParm("./PARAMS/path_outConfigJSON")  # type: str
-	pos_min = _vector_parm_val(asset_node, "./compose/NORMALIZE_pos/posMin{}", "1 2 3")
-	pos_size = _vector_parm_val(asset_node, "./compose/NORMALIZE_pos/posSize{}", "x y z")
+	pos_min = _vector_parm_val(asset_node, "./sopnet/OUT_UnitySpace/posMin{}", "x y z")
+	pos_size = _vector_parm_val(asset_node, "./sopnet/OUT_UnitySpace/posSize{}", "x y z")
 	data = dict(
 		pos_unpack=dict(
 			min=pos_min,
