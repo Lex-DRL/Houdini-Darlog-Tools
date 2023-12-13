@@ -18,7 +18,7 @@
 
 function void udim_cell_ints(int udim_i; /*out*/ int cell_u, cell_v) {
 	int cell_i = udim_i - 1001;
-	if (cell_i < 1) {
+	if (cell_i < 0) {
 		cell_u = -1;
 		cell_v = 0;
 		return;
