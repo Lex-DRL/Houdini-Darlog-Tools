@@ -93,10 +93,20 @@ def _run():
 	
 	try:
 		for d in (
+			# Just in case, let's use a "shotgun" approach.
+			# Maybe, there is a single folder name for `python3.*libs`,
+			# but I wasn't able to google it.
+			'python3.5libs',
+			'python3.6libs',
 			'python3.7libs',
 			'python3.8libs',
 			'python3.9libs',
 			'python3.10libs',
+			'python3.11libs',
+			'python3.12libs',
+			'python3.13libs',
+			'python3.14libs',
+			'python3.15libs',
 		):
 			main(d)
 	except OSError as e:
