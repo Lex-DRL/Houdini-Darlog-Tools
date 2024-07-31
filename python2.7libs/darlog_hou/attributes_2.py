@@ -8,6 +8,7 @@ __author__ = 'Lex Darlog (DRL)'
 
 import typing as _t
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from itertools import chain
 from re import compile as _re_compile
@@ -119,56 +120,120 @@ class AttributeTypeSpecifier:
 			# The attribute is a vector
 			if len(data_type) > 1:
 				_data_types = '[{}]'.format(_data_types)
-			return ['{}-vector{}'.format(_data_types, _sizes), ]
+			return ['{}-vector-{}'.format(_data_types, _sizes), ]
 
 		# In one way or another, not a vector
 		specifiers: _t.List[str] = list()
 		if data_type:
-			specifiers.append(_data_types)
-		if size:
-			specifiers.append('(size-{})'.format(_sizes) if not specifiers else '- {}'.format(_sizes))
+			specifiers.append(_data_types if not size else '{}({})'.format(_data_types, _sizes))
+		elif size:
+			specifiers.append('(size-{})'.format(_sizes))
 		return specifiers
 
 
-class AttributeNotFoundError(ValueError):
-	"""An attribute of a given class/type/size isn't found in specific SOP node."""
+class AttributeErrorABC(ValueError, ABC):
+	"""Abstract base for various errors related to attribute-check (by Darlog's custom asset-nodes)."""
 	def __init__(
 		self,
-		msg: str = None, node: hou.Node = None,
-		attr_name: str = None,
-		attr_specifier: AttributeTypeSpecifier = None,
+		name: str = None,
+		specifier: AttributeTypeSpecifier = None,
+		node: hou.Node = None,
+		msg: str = None,
 		msg_details: str = None
 	):
-		msg = self.__format_message(msg, node, attr_name, attr_specifier, msg_details)
-		super(AttributeNotFoundError, self).__init__(msg)
-		self.attr_name = attr_name
-		self.attr_specifier = attr_specifier
+		msg = self._format_message(name, specifier, node, msg, msg_details, self._formatter_cls_extra())
+		super(AttributeErrorABC, self).__init__(msg)
+		self.name = name
+		self.specifier = specifier
 		self.node = node
 
-	@staticmethod
-	def __format_message(
-		msg: str = None, node: hou.Node = None,
-		attr_name: str = None,
-		attr_specifier: AttributeTypeSpecifier = None,
-		msg_details: str = None
+	@classmethod
+	def _format_message(
+		cls,
+		name: str = None,
+		specifier: AttributeTypeSpecifier = None,
+		node: hou.Node = None,
+		msg: str = None,
+		msg_details: str = None,
+		cls_extra: str = '',
 	) -> _t.Optional[str]:
 		if msg is not None:
 			return msg if not msg_details else '{}\n{}'.format(msg, msg_details)
 		assert msg is None
 
-		if attr_specifier is None:
-			attr_specifier = AttributeTypeSpecifier()
-		has_msg_specs = any(x is not None for x in chain(attr_specifier.as_tuple(), [attr_name, node]))
+		if specifier is None:
+			specifier = AttributeTypeSpecifier()
+		has_msg_specs = any(x is not None for x in chain(specifier.as_tuple(), [name, node]))
 		if not has_msg_specs:
 			return msg_details if msg_details else None
 		assert has_msg_specs
 
-		return '{what}{attr} not found{on_node}{clarif}'.format(
-			what=attr_specifier.formatted(),
-			attr='' if not attr_name else ' "{}"'.format(attr_name),
+		res = cls._formatter().format(
+			attr=specifier.formatted(uppercase_first_char=False),
+			nm='' if not name else ' {}'.format(repr(name)),
+			whats_wrong=cls._formatter_whats_wrong_with_attr(),
 			on_node='' if not node else ' on node: {}'.format(repr(node)),
-			clarif='' if not msg_details else '\n{}'.format(msg_details)
+			details='' if not msg_details else '\n{}'.format(msg_details),
+			cls_extra=cls_extra
 		)
+		return '{}{}'.format(res[:1].upper(), res[1:])
+
+	@classmethod
+	def _formatter(cls) -> str:
+		"""Main formatting pattern for the exception message"""
+		return '{attr}{nm}{whats_wrong}{on_node}{details}{cls_extra}'
+
+	@classmethod
+	def _formatter_cls_extra(cls) -> str:
+		"""If a child class needs to add something to the error message, this is the method to do so with."""
+		return ''
+
+	@classmethod
+	@abstractmethod
+	def _formatter_whats_wrong_with_attr(cls) -> str:
+		"""This class method defines the main part of error message: what's wrong with an attribute."""
+		...
+
+
+class AttributeNotFoundError(AttributeErrorABC):
+	"""An attribute of a given class/type/size isn't found in specific SOP node."""
+
+	@classmethod
+	def _formatter_whats_wrong_with_attr(cls) -> str:
+		return ' not found'
+
+
+class MultipleMatchingAttributesError(AttributeErrorABC):
+	"""Found multiple attributes of a given class/type/size."""
+
+	def __init__(
+		self,
+		*attributes: hou.Attrib,
+		name: str = None,
+		specifier: AttributeTypeSpecifier = None,
+		node: hou.Node = None,
+		msg: str = None,
+		msg_details: str = None,
+	):
+		self.attributes = attributes  # needs to be done BEFORE calling superclass-init
+		super(MultipleMatchingAttributesError, self).__init__(name, specifier, node, msg, msg_details)
+		self.attributes = attributes  # just to make sure
+
+	@classmethod
+	def _formatter_whats_wrong_with_attr(cls) -> str:
+		return 'found multiple'
+
+	@classmethod
+	def _formatter(cls) -> str:
+		return '{whats_wrong}{nm} {attr}s{on_node}{details}{cls_extra}'
+
+	def _formatter_cls_extra(self) -> str:
+		attributes = self.attributes
+		if not attributes:
+			return ''
+		lines: _t.List[str] = ['']  # to start on a new line
+		lines.extend('- {}'.format(repr(x)) for x in attributes)
+		return '\n'.join(lines)
 
 
 _re_valid_attr_name = _re_compile('[a-zA-Z_]+[a-zA-Z_0-9]*')
