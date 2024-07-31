@@ -11,49 +11,15 @@ import typing as _t
 
 from enum import IntEnum
 from json import load
-from traceback import format_exception_only
 
-from darlog_hou.errors import any_exception
-
-_T = _t.TypeVar('T')
+from darlog_hou.attributes_2 import AttributeTypeSpecifier, find_verify as _find_verify
+from darlog_hou.attributes_meta import catch_error_to_attr
 
 
 class PosMode(IntEnum):
 	HDR = 0
 	LDR = 1
 	LDR2 = 2
-
-
-def catch_error_to_attr(func=None, *_, skip_if_pre_error=False, error_types=None):
-	error_types = error_types if error_types else any_exception
-
-	def wrap(old_f):
-		def new_f(node: hou.SopNode, geo: hou.Geometry, *args, **kwargs):
-			if skip_if_pre_error and geo.attribValue('errorDo'):
-				return
-			e = None
-			try:
-				return old_f(node, geo, *args, **kwargs)
-			except error_types as _e:
-				e = _e
-			msg: str = geo.attribValue('error')
-			msg = msg.strip()
-			err_str = '\n'.join(
-				x.strip() for x in format_exception_only(type(e), e)
-			)
-			msg = err_str if not msg else '{}\n\n{}'.format(msg, err_str)
-			geo.setGlobalAttribValue('error', msg)
-			geo.setGlobalAttribValue('errorDo', 1)
-
-		try:
-			new_f.__name__ = old_f.__name__
-		except any_exception:
-			pass
-		return new_f
-
-	if func is None:
-		return wrap
-	return wrap(func)
 
 
 @catch_error_to_attr
@@ -69,6 +35,45 @@ def load_json_config_to_detail_attribs(node: hou.SopNode, geo: hou.Geometry, jso
 	]
 	geo.setGlobalAttribValue('p_min', p_min)
 	geo.setGlobalAttribValue('p_size', p_size)
+
+
+_attr_promote_mode = {
+	hou.attribType.Point: 0,
+	hou.attribType.Prim: 1,
+	hou.attribType.Global: 2,
+}
+_attr_cls_priority = (hou.attribType.Point, hou.attribType.Prim, hou.attribType.Global)
+
+
+@catch_error_to_attr
+def _verify_attr(
+	node: hou.SopNode, geo: hou.Geometry, asset: hou.SopNode, in_geo: hou.Geometry,
+	name: str, specifier: AttributeTypeSpecifier, meta_attr_name: str, meta_attr_class: str, error_multi: bool = False
+):
+	attr = _find_verify(
+		name=name, specifier=specifier, node=asset, geo=in_geo, geo_from_input=1,
+		error_multi=error_multi, node_in_error=False
+	)
+	geo.setGlobalAttribValue(meta_attr_name, attr.name())
+	geo.setGlobalAttribValue(meta_attr_class, _attr_promote_mode.get(attr.type(), 3))
+
+
+_piece_specifier = AttributeTypeSpecifier.from_unsafe_args(_attr_cls_priority, hou.attribData.Int, 1, is_array=False)
+_pivot_specifier = AttributeTypeSpecifier.from_unsafe_args(_attr_cls_priority, hou.attribData.Float, 3, is_array=False)
+
+
+def verify_piece_attr(
+	node: hou.SopNode, geo: hou.Geometry, asset: hou.SopNode, in_geo: hou.Geometry,
+	name: str, meta_attr_name: str, meta_attr_class: str
+):
+	return _verify_attr(node, geo, asset, in_geo, name, _piece_specifier, meta_attr_name, meta_attr_class)
+
+
+def verify_pivot_attr(
+	node: hou.SopNode, geo: hou.Geometry, asset: hou.SopNode, in_geo: hou.Geometry,
+	name: str, meta_attr_name: str, meta_attr_class: str
+):
+	return _verify_attr(node, geo, asset, in_geo, name, _pivot_specifier, meta_attr_name, meta_attr_class)
 
 
 @catch_error_to_attr
