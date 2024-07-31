@@ -236,6 +236,71 @@ class MultipleMatchingAttributesError(AttributeErrorABC):
 		return '\n'.join(lines)
 
 
+def find_verify(
+	name: str,
+	specifier: AttributeTypeSpecifier = None,
+	include_private=False,
+	node: hou.SopNode = None,
+	geo: hou.Geometry = None,
+	geo_from_input: int = None,
+	error_multi: bool = True,
+) -> hou.Attrib:
+	if geo is None:
+		assert isinstance(node, hou.SopNode), "Not a SOP node: {}".format(repr(node))
+		geo = node.geometry() if geo_from_input is None else node.inputGeometry(geo_from_input)
+	assert isinstance(geo, hou.Geometry), "Not a geometry: {}".format(repr(geo))
+	if node is None:
+		node = geo.sopNode()
+	valid_specifier = AttributeTypeSpecifier() if specifier is None else specifier
+	assert isinstance(valid_specifier, AttributeTypeSpecifier), "Not an attribute specifier: {}".format(repr(valid_specifier))
+	assert isinstance(name, str), "Attribute name isn't a string: {}".format(repr(name))
+	clean_name = clean_attr_name(name)
+	if not clean_name:
+		raise ValueError("Not a valid attribute name: {}".format(repr(name)))
+
+	attr_classes = valid_specifier.attr_class
+	if not attr_classes:
+		attr_classes = ALL_ATTR_CLASSES
+
+	potential_matches: _t.List[hou.Attrib] = list()
+	all_attr_getters: _t.Dict[_t_cls, _t.Callable] = {
+		hou.attribType.Vertex: geo.vertexAttribs,
+		hou.attribType.Prim: geo.primAttribs,
+		hou.attribType.Point: geo.pointAttribs,
+		hou.attribType.Global: geo.globalAttribs,
+	}
+	for attr_cls in attr_classes:
+		getter = all_attr_getters.get(attr_cls)
+		if not callable(getter):
+			continue
+		potential_matches.extend(getter(include_private=include_private))
+	# All the attribs matching by class are listed. Now, filter them by other specifiers
+
+	filtered: _t.List[hou.Attrib] = [a for a in potential_matches if a.name() == clean_name]
+
+	data_types = valid_specifier.data_type
+	if data_types:
+		_set = set(data_types)
+		filtered = [a for a in filtered if a.dataType() in _set]
+
+	sizes = valid_specifier.size
+	if sizes:
+		_set = set(sizes)
+		filtered = [a for a in filtered if a.size() in _set]
+
+	is_array = valid_specifier.is_array
+	if is_array is not None:
+		is_array = bool(is_array)
+		filtered = [a for a in filtered if bool(a.isArrayType()) == is_array]
+
+	matches = list(filtered)
+	if not matches:
+		raise AttributeNotFoundError(name=name, specifier=specifier, node=node)
+	if error_multi and len(matches) > 1:
+		raise MultipleMatchingAttributesError(*matches, name=name, specifier=specifier, node=node)
+	return matches[0]
+
+
 _re_valid_attr_name = _re_compile('[a-zA-Z_]+[a-zA-Z_0-9]*')
 
 
