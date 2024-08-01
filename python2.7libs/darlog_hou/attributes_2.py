@@ -8,7 +8,7 @@ __author__ = 'Lex Darlog (DRL)'
 
 import typing as _t
 
-from abc import ABC, abstractmethod
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, fields
 from itertools import chain
 from re import compile as _re_compile
@@ -131,7 +131,7 @@ class AttributeTypeSpecifier:
 		return specifiers
 
 
-class AttributeErrorABC(ValueError, ABC):
+class AttributeErrorABC(ValueError, metaclass=ABCMeta):
 	"""Abstract base for various errors related to attribute-check (by Darlog's custom asset-nodes)."""
 	def __init__(
 		self,
@@ -203,8 +203,8 @@ class AttributeNotFoundError(AttributeErrorABC):
 		return ' not found'
 
 
-class MultipleMatchingAttributesError(AttributeErrorABC):
-	"""Found multiple attributes of a given class/type/size."""
+class _MultiAttributeErrorABC(AttributeErrorABC, metaclass=ABCMeta):
+	"""Intermediate base exception class also containing a field with multiple attributes and adding it to output."""
 
 	def __init__(
 		self,
@@ -216,8 +216,49 @@ class MultipleMatchingAttributesError(AttributeErrorABC):
 		msg_details: str = None,
 	):
 		self.attributes = attributes  # needs to be done BEFORE calling superclass-init
-		super(MultipleMatchingAttributesError, self).__init__(name, specifier, node, msg, msg_details)
+		super(_MultiAttributeErrorABC, self).__init__(name, specifier, node, msg, msg_details)
 		self.attributes = attributes  # just to make sure
+
+	def _formatter_cls_extra(self) -> str:
+		attributes = self.attributes
+		if not attributes:
+			return ''
+		lines: _t.List[str] = [repr(x).strip() for x in attributes]
+		if len(lines) == 1:
+			return ' {}'.format(lines[0])
+		lines_bullet_points = ('- {}'.format(x) for x in lines)
+		lines_bullet_points = chain([''], lines_bullet_points)  # to start on a new line
+		return '\n'.join(lines_bullet_points)
+
+
+class AttributeDataMismatchError(_MultiAttributeErrorABC):
+	"""Geometry does have attribute(s) with the given name, but the attr has a wrong data type/size."""
+	
+	@classmethod
+	def _formatter_whats_wrong_with_attr(cls) -> str:
+		return " doesn't match specifier"
+
+	@classmethod
+	def _formatter(cls) -> str:
+		"""Main formatting pattern for the exception message"""
+		return 'Attribute{nm} is found, but it{whats_wrong}{on_node}\nExpected: {attr}{details}\nGot:{cls_extra}'
+
+
+class AttributeClassMismatchError(_MultiAttributeErrorABC):
+	"""Geometry does have attribute(s) with the given name, but it has a wrong class (point/prim/vertex/detail)."""
+
+	@classmethod
+	def _formatter_whats_wrong_with_attr(cls) -> str:
+		return " has a wrong class"
+
+	@classmethod
+	def _formatter(cls) -> str:
+		"""Main formatting pattern for the exception message"""
+		return 'Attribute{nm} is found, but it{whats_wrong}{on_node}\nExpected: {attr}{details}\nGot:{cls_extra}'
+
+
+class MultipleMatchingAttributesError(_MultiAttributeErrorABC):
+	"""Found multiple attributes of a given class/type/size."""
 
 	@classmethod
 	def _formatter_whats_wrong_with_attr(cls) -> str:
@@ -226,14 +267,6 @@ class MultipleMatchingAttributesError(AttributeErrorABC):
 	@classmethod
 	def _formatter(cls) -> str:
 		return '{whats_wrong}{nm} {attr}s{on_node}{details}{cls_extra}'
-
-	def _formatter_cls_extra(self) -> str:
-		attributes = self.attributes
-		if not attributes:
-			return ''
-		lines: _t.List[str] = ['']  # to start on a new line
-		lines.extend('- {}'.format(repr(x)) for x in attributes)
-		return '\n'.join(lines)
 
 
 def find_verify(
