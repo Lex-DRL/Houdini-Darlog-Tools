@@ -10,7 +10,7 @@ import typing as _t
 
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, fields
-from itertools import chain
+from itertools import chain, repeat
 from re import compile as _re_compile
 
 import hou
@@ -72,6 +72,12 @@ class AttributeTypeSpecifier:
 			data_type=cls.__arg_options_tuple(data_type),
 			size=cls.__arg_options_tuple(size),
 			is_array=is_array if is_array is None else bool(is_array)
+		)
+
+	@classmethod
+	def from_attr(cls, attr: hou.Attrib) -> 'AttributeTypeSpecifier':
+		return cls.from_unsafe_args(
+			attr_class=attr.type(), data_type=attr.dataType(), size=attr.size(), is_array=attr.isArrayType()
 		)
 
 	@staticmethod
@@ -269,15 +275,14 @@ class MultipleMatchingAttributesError(_MultiAttributeErrorABC):
 		return '{whats_wrong}{nm} {attr}s{on_node}{details}{cls_extra}'
 
 
-def find_verify(
+def _find_f__args_pre_check(
 	name: str,
 	specifier: AttributeTypeSpecifier = None,
-	include_private=False,
 	node: hou.SopNode = None,
 	geo: hou.Geometry = None,
 	geo_from_input: int = None,
-	error_multi: bool = True,
-) -> hou.Attrib:
+):
+	"""Shared arguments pre-check between different `find*()` functions."""
 	if geo is None:
 		assert isinstance(node, hou.SopNode), "Not a SOP node: {}".format(repr(node))
 		geo = node.geometry() if geo_from_input is None else node.inputGeometry(geo_from_input)
@@ -290,7 +295,20 @@ def find_verify(
 	clean_name = clean_attr_name(name)
 	if not clean_name:
 		raise ValueError("Not a valid attribute name: {}".format(repr(name)))
+	return clean_name, valid_specifier, node, geo
 
+
+def _find_verify_main_f__no_args_check(
+	name: str, clean_name: str,
+	specifier: _t.Optional[AttributeTypeSpecifier], valid_specifier: AttributeTypeSpecifier,
+	include_private: bool,
+	node: hou.SopNode,
+	geo: hou.Geometry,
+	error_multi: bool,
+	node_in_error: bool,
+	specifier_in_error: bool,
+) -> hou.Attrib:
+	"""The main part of `find_verify()` function, assuming all the arguments are already checked for validity."""
 	attr_classes = valid_specifier.attr_class
 	if not attr_classes:
 		attr_classes = ALL_ATTR_CLASSES
@@ -309,8 +327,22 @@ def find_verify(
 		potential_matches.extend(getter(include_private=include_private))
 	# All the attribs matching by class are listed. Now, filter them by other specifiers
 
-	filtered: _t.List[hou.Attrib] = [a for a in potential_matches if a.name() == clean_name]
+	potential_matches = [a for a in potential_matches if a.name() == clean_name]
+	class_mismatch = False
+	if not potential_matches:
+		# First, check if there's an attribute with this name, but from another class:
+		for getter in all_attr_getters.values():
+			if not callable(getter):
+				continue
+			potential_matches.extend(getter(include_private=include_private))
+		potential_matches = [a for a in potential_matches if a.name() == clean_name]
+		if not potential_matches:
+			raise AttributeNotFoundError(
+				name=name, specifier=specifier if specifier_in_error else None, node=node if node_in_error else None
+			)
+		class_mismatch = True
 
+	filtered: _t.List[hou.Attrib] = potential_matches
 	data_types = valid_specifier.data_type
 	if data_types:
 		_set = set(data_types)
@@ -326,12 +358,117 @@ def find_verify(
 		is_array = bool(is_array)
 		filtered = [a for a in filtered if bool(a.isArrayType()) == is_array]
 
-	matches = list(filtered)
-	if not matches:
-		raise AttributeNotFoundError(name=name, specifier=specifier, node=node)
-	if error_multi and len(matches) > 1:
-		raise MultipleMatchingAttributesError(*matches, name=name, specifier=specifier, node=node)
-	return matches[0]
+	if class_mismatch:
+		if filtered:
+			raise AttributeClassMismatchError(
+				*filtered, name=name, specifier=specifier if specifier_in_error else None, node=node if node_in_error else None
+			)
+		raise AttributeNotFoundError(
+			name=name, specifier=specifier if specifier_in_error else None, node=node if node_in_error else None
+		)
+
+	if not filtered:
+		raise AttributeDataMismatchError(
+			*potential_matches, name=name, specifier=specifier if specifier_in_error else None, node=node if node_in_error else None
+		)
+	if error_multi and len(filtered) > 1:
+		raise MultipleMatchingAttributesError(
+			*filtered, name=name, specifier=specifier if specifier_in_error else None, node=node if node_in_error else None
+		)
+	return filtered[0]
+
+
+def find_verify(
+	name: str,
+	specifier: AttributeTypeSpecifier = None,
+	include_private=False,
+	node: hou.SopNode = None,
+	geo: hou.Geometry = None,
+	geo_from_input: int = None,
+	error_multi: bool = True,
+	node_in_error: bool = True,
+	specifier_in_error: bool = True,
+) -> hou.Attrib:
+	"""Find an attribute with the given name and also satisfying the given specifier."""
+	clean_name, valid_specifier, node, geo = _find_f__args_pre_check(name, specifier, node, geo, geo_from_input)
+	return _find_verify_main_f__no_args_check(
+		name, clean_name, specifier, valid_specifier,
+		include_private, node, geo, error_multi, node_in_error, specifier_in_error
+	)
+
+
+_defaults_by_data_type = {
+	hou.attribData.Int: 0,
+	hou.attribData.Float: 0.0,
+	hou.attribData.String: '',
+	hou.attribData.Dict: dict(),
+}
+
+
+def _detect_default_value(dt: _t_dt, size: int):
+	assert dt in ALL_ATTR_DATA_TYPES_SET and isinstance(size, int) and size > 0
+	default = _defaults_by_data_type.get(dt, 0)
+	return default if size < 2 else list(repeat(default, size))
+
+
+def find_or_create(
+	name: str,
+	specifier: AttributeTypeSpecifier = None,
+	include_private=False,
+	node: hou.SopNode = None,
+	geo: hou.Geometry = None,
+	override=True,
+	default=None,
+	transform_as_normal=False,
+	create_local_variable=False,
+	error_multi: bool = True,
+	node_in_error: bool = True,
+	specifier_in_error: bool = True,
+) -> hou.Attrib:
+	"""Find an existing attribute with the given name/specifier - or create a new one."""
+	clean_name, valid_specifier, node, geo = _find_f__args_pre_check(name, specifier, node, geo, geo_from_input=None)
+	try:
+		return _find_verify_main_f__no_args_check(
+			name, clean_name, specifier, valid_specifier,
+			include_private, node, geo, error_multi, node_in_error, specifier_in_error
+		)
+	except AttributeDataMismatchError as e:
+		if not override:
+			raise e
+		# We have an attribute, but we need to recreate it with different type.
+		# So, first - remember it's specifics and remove old attr:
+		assert e.attributes
+		attr = e.attributes[0]
+		valid_specifier = AttributeTypeSpecifier.from_attr(attr)
+		clean_name = attr.name()
+		attr.destroy()
+	except (AttributeNotFoundError, AttributeClassMismatchError):
+		pass
+
+	attr_cls_tuple = valid_specifier.attr_class
+	attr_cls = attr_cls_tuple[0] if attr_cls_tuple else ALL_ATTR_CLASSES[0]
+	if attr_cls not in ALL_ATTR_CLASSES_SET:
+		attr_cls = ALL_ATTR_CLASSES[0]
+
+	dt_tuple = valid_specifier.data_type
+	dt = dt_tuple[0] if dt_tuple else ALL_ATTR_DATA_TYPES[0]
+	if dt not in ALL_ATTR_DATA_TYPES_SET:
+		dt = ALL_ATTR_DATA_TYPES[0]
+
+	size_tuple = valid_specifier.size
+	size = size_tuple[0] if size_tuple else 1
+	if not isinstance(size, int):
+		size = int(size)
+	size = max(size, 1)
+
+	if valid_specifier.is_array:
+		# Creating a new array-attr:
+		return geo.addArrayAttrib(attr_cls, clean_name, dt, size)
+
+	# Creating a regular attr:
+	if default is None:
+		default = _detect_default_value(dt, size)
+	return geo.addAttrib(attr_cls, clean_name, default, transform_as_normal, create_local_variable)
 
 
 _re_valid_attr_name = _re_compile('[a-zA-Z_]+[a-zA-Z_0-9]*')
