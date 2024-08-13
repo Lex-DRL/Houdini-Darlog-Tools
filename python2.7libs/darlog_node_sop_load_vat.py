@@ -9,8 +9,10 @@ import hou
 
 import typing as _t
 
+from dataclasses import dataclass
 from enum import IntEnum
 from json import load
+from typing import NamedTuple
 
 from darlog_hou.attributes_2 import AttributeTypeSpecifier, find_verify as _find_verify
 from darlog_hou.attributes_meta import catch_error_to_attr
@@ -82,6 +84,20 @@ def detect_vat_size(
 	geo.setGlobalAttribValue('n_frames', n_frames)
 
 
+class MetaAttribNames(NamedTuple):
+	"""
+	An utility class, containing the names of attribs in META branch,
+	related to error-checks for actual attribs in input SOP.
+	"""
+	piece: str = 'attr_piece'
+	piece_cls: str = 'attr_piece_cls'
+	pivot: str = 'attr_pivot'
+	pivot_cls: str = 'attr_pivot_cls'
+
+
+_default_meta_attrib_names = MetaAttribNames()
+
+
 _attr_promote_mode = {
 	hou.attribType.Point: 0,
 	hou.attribType.Prim: 1,
@@ -90,34 +106,52 @@ _attr_promote_mode = {
 _attr_cls_priority = (hou.attribType.Point, hou.attribType.Prim, hou.attribType.Global)
 
 
-@catch_error_to_attr
-def _verify_attr(
-	node: hou.SopNode, geo: hou.Geometry, asset: hou.SopNode, in_geo: hou.Geometry,
-	name: str, specifier: AttributeTypeSpecifier, meta_attr_name: str, meta_attr_class: str, error_multi: bool = False,
-):
-	attr = _find_verify(
-		name=name, specifier=specifier, node=asset, geo=in_geo, geo_from_input=1,
-		error_multi=error_multi, node_in_error=False
-	)
-	geo.setGlobalAttribValue(meta_attr_name, attr.name())
-	geo.setGlobalAttribValue(meta_attr_class, _attr_promote_mode.get(attr.type(), 3))
-
-
 _piece_specifier = AttributeTypeSpecifier.from_unsafe_args(_attr_cls_priority, hou.attribData.Int, 1, is_array=False)
 _pivot_specifier = AttributeTypeSpecifier.from_unsafe_args(_attr_cls_priority, hou.attribData.Float, 3, is_array=False)
 
 
-def verify_piece_attr(
-	node: hou.SopNode, geo: hou.Geometry,  # META branch
-	asset: hou.SopNode, in_geo: hou.Geometry,  # actual input SOPs
-	name: str, meta_attr_name: str = 'attr_piece', meta_attr_class: str = 'attr_piece_cls',
-):
-	return _verify_attr(node, geo, asset, in_geo, name, _piece_specifier, meta_attr_name, meta_attr_class)
+@dataclass
+class InputGeoValidator:
+	"""
+	Functions related to input-geo-check, logically grouped under this container.
 
+	Each function has a number suffix indicating in which order they need to be called.
+	"""
 
-def verify_pivot_attr(
-	node: hou.SopNode, geo: hou.Geometry,  # META branch
-	asset: hou.SopNode, in_geo: hou.Geometry,  # actual input SOPs
-	name: str, meta_attr_name: str = 'attr_pivot', meta_attr_class: str = 'attr_pivot_cls',
-):
-	return _verify_attr(node, geo, asset, in_geo, name, _pivot_specifier, meta_attr_name, meta_attr_class)
+	node: hou.SopNode
+	geo: hou.Geometry
+	asset: hou.SopNode
+	in_geo: hou.Geometry
+
+	meta_attrib_names: MetaAttribNames = _default_meta_attrib_names
+
+	@staticmethod
+	@catch_error_to_attr
+	def __verify_attr_f(
+		node: hou.SopNode, geo: hou.Geometry,  # META branch, required for `@catch_error_to_attr`
+		asset: hou.SopNode, in_geo: hou.Geometry,  # actual input SOPs
+		name: str, specifier: AttributeTypeSpecifier, meta_attr_name: str, meta_attr_class: str, error_multi: bool = False,
+	):
+		attr = _find_verify(
+			name=name, specifier=specifier, node=asset, geo=in_geo, geo_from_input=1,
+			error_multi=error_multi, node_in_error=False
+		)
+		geo.setGlobalAttribValue(meta_attr_name, attr.name())
+		geo.setGlobalAttribValue(meta_attr_class, _attr_promote_mode.get(attr.type(), 3))
+
+	def _verify_attr(
+		self,
+		name: str, specifier: AttributeTypeSpecifier, meta_attr_name: str, meta_attr_class: str, error_multi: bool = False,
+	):
+		return self.__verify_attr_f(
+			self.node, self.geo, self.asset, self.in_geo,
+			name, specifier, meta_attr_name, meta_attr_class, error_multi
+		)
+
+	def verify_piece_attr_0(self, name: str,):
+		meta_nm = self.meta_attrib_names
+		return self._verify_attr(name, _piece_specifier, meta_nm.piece, meta_nm.piece_cls)
+
+	def verify_pivot_attr_0(self, name: str,):
+		meta_nm = self.meta_attrib_names
+		return self._verify_attr(name, _pivot_specifier, meta_nm.pivot, meta_nm.pivot_cls)
