@@ -20,13 +20,17 @@ _t_dt = _t.Union[hou.attribData, type(hou.attribData.Float)]
 _t_cls = _t.Union[hou.attribType, type(hou.attribType.Point)]
 
 ALL_ATTR_CLASSES: _t.Tuple[_t_cls, ...] = (
-	hou.attribType.Point,
-	hou.attribType.Prim,
-	hou.attribType.Vertex,
+	# Same order as in promote/create-attr node + "run over" in wrangle (excluding "numbers"):
 	hou.attribType.Global,
+	hou.attribType.Prim,
+	hou.attribType.Point,
+	hou.attribType.Vertex,
 )
 ALL_ATTR_CLASSES_SET: _t.FrozenSet[_t_cls] = frozenset(ALL_ATTR_CLASSES)
 
+ATTR_ID_TO_CLASS: _t.Dict[int, _t_cls] = {
+	i: c for i, c in enumerate(ALL_ATTR_CLASSES)
+}
 ATTR_CLASS_TO_ID: _t.Dict[_t_cls, int] = {
 	c: i for i, c in enumerate(ALL_ATTR_CLASSES)
 }
