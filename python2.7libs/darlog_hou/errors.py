@@ -32,6 +32,7 @@ except Exception:
 
 
 any_exception = (Exception, _hou.Error)
+any_base_exception = (BaseException, _hou.Error)
 
 
 def assert_arg_type(val, _class):  # type: (_t.Any, _t.Type[_T]) -> _T

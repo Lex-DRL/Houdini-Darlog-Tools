@@ -17,7 +17,10 @@ from .attributes_2 import (
 	find_or_create as _find_or_create,
 	AttributeTypeSpecifier as _Specifier
 )
-from .errors import any_exception as _any_exception
+from .errors import (
+	any_exception as _any_exception,
+	any_base_exception as _any_base_exception
+)
 
 
 _T = _t.TypeVar('T')
@@ -72,7 +75,6 @@ def catch_error_to_attr(
 	to a global 'error' attribute.
 	"""
 	error_types = error_types if error_types else _any_exception
-	_any_base_exception = (BaseException, hou.Error)
 	assert (
 		(isinstance(error_types, type) and issubclass(error_types, _any_base_exception)) or
 		(isinstance(error_types, tuple) and error_types and all(
