@@ -14,8 +14,18 @@ from enum import IntEnum
 from json import load
 from typing import NamedTuple
 
-from darlog_hou.attributes_2 import AttributeTypeSpecifier, find_verify as _find_verify
+from darlog_hou.attributes_2 import (
+	AttributeTypeSpecifier,
+	ATTR_CLASS_TO_ID,
+	ATTR_ID_TO_CLASS,
+	_t_cls,
+	find_verify as _find_verify
+)
 from darlog_hou.attributes_meta import catch_error_to_attr
+from darlog_hou.errors import any_exception
+
+
+_catch_error_to_attr_with_pre_skip = catch_error_to_attr(skip_if_pre_error=True)
 
 
 class PosMode(IntEnum):
@@ -65,7 +75,7 @@ def verify_images_exist(
 	geo.setGlobalAttribValue('p_main_tex', pos_main_tex)
 
 
-@catch_error_to_attr(skip_if_pre_error=True)
+@_catch_error_to_attr_with_pre_skip
 def detect_vat_size(
 	node: hou.SopNode, geo: hou.Geometry,
 	cop_tex: hou.CopNode,
@@ -93,17 +103,25 @@ class MetaAttribNames(NamedTuple):
 	piece_cls: str = 'attr_piece_cls'
 	pivot: str = 'attr_pivot'
 	pivot_cls: str = 'attr_pivot_cls'
+	ren0_src: str = 'ren0_src'
+	ren0_tmp: str = 'ren0_tmp'
+	ren1_src: str = 'ren1_src'
+	ren1_trg: str = 'ren1_trg'
 
 
 _default_meta_attrib_names = MetaAttribNames()
 
 
-_attr_promote_mode = {
-	hou.attribType.Point: 0,
-	hou.attribType.Prim: 1,
-	hou.attribType.Global: 2,
-}
-_attr_cls_priority = (hou.attribType.Point, hou.attribType.Prim, hou.attribType.Global)
+class InternalAttribNames(NamedTuple):
+	piece: str = 'piece'
+	pivot: str = 'pivot'
+
+
+_default_internal_attrib_names = InternalAttribNames()
+
+_attr_cls_priority: _t.Tuple[_t_cls, ...] = (hou.attribType.Point, hou.attribType.Prim, hou.attribType.Global)
+# ATTR_CLASS_TO_ID already has promote-node IDs, so the resulting ints are menu values:
+_attr_cls_to_int: _t.Dict[_t_cls, int] = {c: i for c, i in ATTR_CLASS_TO_ID.items() if c in _attr_cls_priority}
 
 
 _piece_specifier = AttributeTypeSpecifier.from_unsafe_args(_attr_cls_priority, hou.attribData.Int, 1, is_array=False)
@@ -124,6 +142,7 @@ class InputGeoValidator:
 	in_geo: hou.Geometry
 
 	meta_attrib_names: MetaAttribNames = _default_meta_attrib_names
+	internal_attrib_names: InternalAttribNames = _default_internal_attrib_names
 
 	@staticmethod
 	@catch_error_to_attr
@@ -137,7 +156,7 @@ class InputGeoValidator:
 			error_multi=error_multi, node_in_error=False
 		)
 		geo.setGlobalAttribValue(meta_attr_name, attr.name())
-		geo.setGlobalAttribValue(meta_attr_class, _attr_promote_mode.get(attr.type(), 3))
+		geo.setGlobalAttribValue(meta_attr_class, _attr_cls_to_int.get(attr.type(), -1))
 
 	def _verify_attr(
 		self,
@@ -155,3 +174,135 @@ class InputGeoValidator:
 	def verify_pivot_attr_0(self, name: str,):
 		meta_nm = self.meta_attrib_names
 		return self._verify_attr(name, _pivot_specifier, meta_nm.pivot, meta_nm.pivot_cls)
+
+	@staticmethod
+	@_catch_error_to_attr_with_pre_skip
+	def __detect_renames(
+		node: hou.SopNode, geo: hou.Geometry,  # META branch, required for `@catch_error_to_attr`
+		asset: hou.SopNode, in_geo: hou.Geometry,  # actual input SOPs
+		meta_nm: MetaAttribNames, internal_nm: InternalAttribNames
+	):
+		"""
+		Internally, required attributes are (in this specific order):
+		1. Promoted to Point type (if not)
+		2. Renamed to hard-coded internal names.
+
+		... therefore, as step 0, we need to free up those internal names if present -
+		by temporarily renaming existing attributes, then doing the node's job,
+		then performing all 3 steps in reverse order.
+
+		No extra meta-attribs are needed for promotions themselves. Attr-class attribs already contain proper IDs.
+		"""
+		piece_class = ATTR_ID_TO_CLASS.get(geo.intAttribValue(meta_nm.piece_cls), None)
+		pivot_class = ATTR_ID_TO_CLASS.get(geo.intAttribValue(meta_nm.pivot_cls), None)
+		assert (
+			piece_class in _attr_cls_to_int and pivot_class in _attr_cls_to_int
+		), "Internal error: invalid attribute classes for piece/pivot:\n{}\n{}".format(repr(piece_class), repr(pivot_class))
+		piece_nm: str = geo.stringAttribValue(meta_nm.piece)
+		pivot_nm: str = geo.stringAttribValue(meta_nm.pivot)
+		assert (
+			piece_nm and isinstance(piece_nm, str) and
+			pivot_nm and isinstance(pivot_nm, str)
+		), "Internal error: invalid attribute names for piece/pivot:\n{}\n{}".format(repr(piece_nm), repr(pivot_nm))
+		assert isinstance(geo, hou.Geometry), "Internal error: not a valid geo in META: {}".format(repr(geo))
+
+		existing_point_attr_names: _t.Set[str] = set(x.name() for x in in_geo.pointAttribs())
+		pre_renames_src: _t.List[str] = list()
+		pre_renames_tmp: _t.List[str] = list()
+
+		def pre_free_up_point_attr_name(attr_nm: str):
+			do_rename = False
+			new_name: str = attr_nm
+			while new_name in existing_point_attr_names:
+				new_name = '_{}'.format(new_name)  # prefix with '_'
+				do_rename = True
+			if do_rename:
+				pre_renames_src.append(attr_nm)
+				pre_renames_tmp.append(new_name)
+
+		def schedule_pre_renames_for_single_attr(
+			attr_cls: _t_cls, attr_nm_src: str, attr_nm_internal: str
+		):
+			is_promoted = attr_cls != hou.attribType.Point
+			if is_promoted:
+				# Source attrib will be promoted. We need to free up it's source name, too:
+				pre_free_up_point_attr_name(attr_nm_src)
+				# ... and since we've freed the name, remove it from the set:
+				if attr_nm_src in existing_point_attr_names:
+					existing_point_attr_names.remove(attr_nm_src)
+			if is_promoted or attr_nm_src != attr_nm_internal:
+				# We might need to free up internal name unless the attr already has it and already is point:
+				pre_free_up_point_attr_name(attr_nm_internal)
+				# similarly, remove it from the set:
+				if attr_nm_internal in existing_point_attr_names:
+					existing_point_attr_names.remove(attr_nm_internal)
+
+		schedule_pre_renames_for_single_attr(piece_class, piece_nm, internal_nm.piece)
+		schedule_pre_renames_for_single_attr(pivot_class, pivot_nm, internal_nm.pivot)
+
+		# After pre-rename, point-attrib-names-set will be extended with temporary names, too:
+		existing_point_attr_names.update(pre_renames_tmp)
+
+		# However, during this pre-check, we've might already pre-renamed our main attribs,
+		# if they already were of point class, but was taking other attribs' names.
+		# If so, we need to detect their new names (after pre-rename):
+		def find_pre_renamed_clashing_source_name(attr_cls: _t_cls, attr_nm_src: str):
+			if attr_cls != hou.attribType.Point:
+				return attr_nm_src
+			start = 0
+			attr_nm_src = attr_nm_src
+			while True:  # just in case source attr might've been renamed multiple times in sequence
+				try:
+					index = pre_renames_src.index(attr_nm_src, start)
+				except any_exception:
+					return attr_nm_src
+				attr_nm_src = pre_renames_tmp[index]
+				start = index
+
+		piece_nm = find_pre_renamed_clashing_source_name(piece_class, piece_nm)
+		pivot_nm = find_pre_renamed_clashing_source_name(pivot_class, pivot_nm)
+
+		promoted_renames_src: _t.List[str] = list()
+		promoted_renames_internal: _t.List[str] = list()
+
+		# First, we need to ensure source names don't clash with other attrib's internal names,
+		# and if so - post-rename them to "buffers":
+
+		def rename_to_buffer(src_nm: str, *other_internal_names: str):
+			other_internal_names = set(other_internal_names)
+			src_nm = src_nm
+			while src_nm in other_internal_names:
+				new_name: str = '_{}'.format(src_nm)
+				while new_name in existing_point_attr_names:
+					new_name = '_{}'.format(new_name)
+				promoted_renames_src.append(src_nm)
+				promoted_renames_internal.append(new_name)
+				existing_point_attr_names.add(new_name)
+				if src_nm in existing_point_attr_names:
+					existing_point_attr_names.remove(src_nm)
+				src_nm = new_name
+			return src_nm
+
+		piece_nm = rename_to_buffer(piece_nm, *[x for x in internal_nm if x != internal_nm.piece])
+		pivot_nm = rename_to_buffer(pivot_nm, *[x for x in internal_nm if x != internal_nm.pivot])
+
+		# Source attribs are promoted, their internal names are freed, and they're ready do be finally renamed.
+		for src_nm, desired_nm in [
+			(piece_nm, internal_nm.piece),
+			(pivot_nm, internal_nm.pivot),
+		]:
+			if src_nm == desired_nm:
+				continue
+			promoted_renames_src.append(src_nm)
+			promoted_renames_internal.append(desired_nm)
+
+		# Finally, what's left is assigning these values to meta geo:
+		geo.setGlobalAttribValue(meta_nm.ren0_src, pre_renames_src)
+		geo.setGlobalAttribValue(meta_nm.ren0_tmp, pre_renames_tmp)
+		geo.setGlobalAttribValue(meta_nm.ren1_src, promoted_renames_src)
+		geo.setGlobalAttribValue(meta_nm.ren1_trg, promoted_renames_internal)
+
+	def detect_internal_renames_1(self, ):
+		return self.__detect_renames(
+			self.node, self.geo, self.asset, self.in_geo, self.meta_attrib_names, self.internal_attrib_names
+		)
