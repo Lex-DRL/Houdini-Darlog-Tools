@@ -120,3 +120,6 @@ venv.bak/
 # This dir must be made a softlink:
 /python3.7libs
 /python3.*libs
+
+# Debug/test scripts:
+/python?.*libs/test*
