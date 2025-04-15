@@ -59,7 +59,7 @@ class InputProcessor:
 		node = _assert_arg_type(pwd_python_node, hou.SopNode)  # type: hou.SopNode
 		self.geo = _assert_arg_type(node.geometry(), hou.Geometry)  # type: hou.Geometry
 
-		self.path_pattern = path_pattern
+		self.path_pattern = path_pattern.replace(win_slash, '/')
 
 		hip_path_with_slash = _hip_path_with_only_one_trailing_slash(hip_path.replace(win_slash, '/'))
 		self.hip_path_with_slash = hip_path_with_slash
@@ -88,7 +88,7 @@ class InputProcessor:
 		if not path_pattern or path_pattern == '*':
 			raise hou.NodeError("Path not specified")
 
-		file_paths = glob(path_pattern)
+		file_paths = glob(path_pattern, recursive=('**/' in path_pattern))
 
 		file_paths = filter(isfile, file_paths)
 		file_paths = [x.replace(win_slash, '/').rstrip('/') for x in file_paths]
