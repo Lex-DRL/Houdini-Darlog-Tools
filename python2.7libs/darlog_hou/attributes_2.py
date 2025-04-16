@@ -7,6 +7,7 @@ v2
 __author__ = 'Lex Darlog (DRL)'
 
 import typing as _t
+from typing import Optional as _O, Union as _U
 
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, fields
@@ -16,8 +17,8 @@ from re import compile as _re_compile
 import hou
 
 _T = _t.TypeVar('T')
-_t_dt = _t.Union[hou.attribData, type(hou.attribData.Float)]
-_t_cls = _t.Union[hou.attribType, type(hou.attribType.Point)]
+_t_dt = _U[hou.attribData, type(hou.attribData.Float)]
+_t_cls = _U[hou.attribType, type(hou.attribType.Point)]
 
 ALL_ATTR_CLASSES: _t.Tuple[_t_cls, ...] = (
 	# Same order as in promote/create-attr node + "run over" in wrangle (excluding "numbers"):
@@ -57,17 +58,17 @@ class AttributeTypeSpecifier:
 	Each field is either a `None` or a tuple of valid options.
 	Main purpose is nice (human-readable) formatting of such specifier.
 	"""
-	attr_class: _t.Optional[_t.Tuple[_t_cls, ...]] = None
-	data_type: _t.Optional[_t.Tuple[_t_dt, ...]] = None
-	size: _t.Optional[_t.Tuple[int, ...]] = None
-	is_array: _t.Optional[bool] = None
+	attr_class: _O[_t.Tuple[_t_cls, ...]] = None
+	data_type: _O[_t.Tuple[_t_dt, ...]] = None
+	size: _O[_t.Tuple[int, ...]] = None
+	is_array: _O[bool] = None
 
 	@classmethod
 	def from_unsafe_args(
 		cls,
-		attr_class: _t.Union[_t_cls, _t.Iterable[_t_cls]] = None,
-		data_type: _t.Union[_t_dt, _t.Iterable[_t_dt]] = None,
-		size: _t.Union[int, _t.Iterable[int]] = None,
+		attr_class: _U[_t_cls, _t.Iterable[_t_cls]] = None,
+		data_type: _U[_t_dt, _t.Iterable[_t_dt]] = None,
+		size: _U[int, _t.Iterable[int]] = None,
 		is_array: bool = None,
 	) -> 'AttributeTypeSpecifier':
 		"""A factory method, dealing with less restrictive input arguments"""
@@ -85,7 +86,7 @@ class AttributeTypeSpecifier:
 		)
 
 	@staticmethod
-	def __arg_options_tuple(value: _t.Union[_T, _t.Iterable[_T], None]) -> _t.Optional[_t.Tuple[_T, ...]]:
+	def __arg_options_tuple(value: _U[_T, _t.Iterable[_T], None]) -> _O[_t.Tuple[_T, ...]]:
 		if value is None:
 			return None
 		try:
@@ -141,6 +142,75 @@ class AttributeTypeSpecifier:
 		return specifiers
 
 
+# Just shorthands:
+__AS = AttributeTypeSpecifier
+__attr_spec = AttributeTypeSpecifier.from_unsafe_args
+
+# noinspection DuplicatedCode
+SPECIFIER_DET_DICT: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Dict, 1, is_array=False)
+SPECIFIER_DET_DICT_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Dict, 1, is_array=True)
+SPECIFIER_DET_STR: __AS = __attr_spec(hou.attribType.Global, hou.attribData.String, 1, is_array=False)
+SPECIFIER_DET_STR_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.String, 1, is_array=True)
+SPECIFIER_DET_INT: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Int, 1, is_array=False)
+SPECIFIER_DET_INT_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Int, 1, is_array=True)
+SPECIFIER_DET_FLT: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 1, is_array=False)
+SPECIFIER_DET_FLT_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 1, is_array=True)
+SPECIFIER_DET_V2: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 2, is_array=False)
+SPECIFIER_DET_V2_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 2, is_array=True)
+SPECIFIER_DET_V3: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 3, is_array=False)
+SPECIFIER_DET_V3_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 3, is_array=True)
+SPECIFIER_DET_V4: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 4, is_array=False)
+SPECIFIER_DET_V4_ARRAY: __AS = __attr_spec(hou.attribType.Global, hou.attribData.Float, 4, is_array=True)
+
+# noinspection DuplicatedCode
+SPECIFIER_PRIM_DICT: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Dict, 1, is_array=False)
+SPECIFIER_PRIM_DICT_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Dict, 1, is_array=True)
+SPECIFIER_PRIM_STR: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.String, 1, is_array=False)
+SPECIFIER_PRIM_STR_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.String, 1, is_array=True)
+SPECIFIER_PRIM_INT: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Int, 1, is_array=False)
+SPECIFIER_PRIM_INT_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Int, 1, is_array=True)
+SPECIFIER_PRIM_FLT: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 1, is_array=False)
+SPECIFIER_PRIM_FLT_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 1, is_array=True)
+SPECIFIER_PRIM_V2: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 2, is_array=False)
+SPECIFIER_PRIM_V2_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 2, is_array=True)
+SPECIFIER_PRIM_V3: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 3, is_array=False)
+SPECIFIER_PRIM_V3_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 3, is_array=True)
+SPECIFIER_PRIM_V4: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 4, is_array=False)
+SPECIFIER_PRIM_V4_ARRAY: __AS = __attr_spec(hou.attribType.Prim, hou.attribData.Float, 4, is_array=True)
+
+# noinspection DuplicatedCode
+SPECIFIER_PT_DICT: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Dict, 1, is_array=False)
+SPECIFIER_PT_DICT_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Dict, 1, is_array=True)
+SPECIFIER_PT_STR: __AS = __attr_spec(hou.attribType.Point, hou.attribData.String, 1, is_array=False)
+SPECIFIER_PT_STR_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.String, 1, is_array=True)
+SPECIFIER_PT_INT: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Int, 1, is_array=False)
+SPECIFIER_PT_INT_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Int, 1, is_array=True)
+SPECIFIER_PT_FLT: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 1, is_array=False)
+SPECIFIER_PT_FLT_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 1, is_array=True)
+SPECIFIER_PT_V2: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 2, is_array=False)
+SPECIFIER_PT_V2_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 2, is_array=True)
+SPECIFIER_PT_V3: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 3, is_array=False)
+SPECIFIER_PT_V3_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 3, is_array=True)
+SPECIFIER_PT_V4: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 4, is_array=False)
+SPECIFIER_PT_V4_ARRAY: __AS = __attr_spec(hou.attribType.Point, hou.attribData.Float, 4, is_array=True)
+
+# noinspection DuplicatedCode
+SPECIFIER_VTX_DICT: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Dict, 1, is_array=False)
+SPECIFIER_VTX_DICT_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Dict, 1, is_array=True)
+SPECIFIER_VTX_STR: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.String, 1, is_array=False)
+SPECIFIER_VTX_STR_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.String, 1, is_array=True)
+SPECIFIER_VTX_INT: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Int, 1, is_array=False)
+SPECIFIER_VTX_INT_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Int, 1, is_array=True)
+SPECIFIER_VTX_FLT: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 1, is_array=False)
+SPECIFIER_VTX_FLT_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 1, is_array=True)
+SPECIFIER_VTX_V2: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 2, is_array=False)
+SPECIFIER_VTX_V2_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 2, is_array=True)
+SPECIFIER_VTX_V3: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 3, is_array=False)
+SPECIFIER_VTX_V3_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 3, is_array=True)
+SPECIFIER_VTX_V4: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 4, is_array=False)
+SPECIFIER_VTX_V4_ARRAY: __AS = __attr_spec(hou.attribType.Vertex, hou.attribData.Float, 4, is_array=True)
+
+
 class AttributeErrorABC(ValueError, metaclass=ABCMeta):
 	"""Abstract base for various errors related to attribute-check (by Darlog's custom asset-nodes)."""
 	def __init__(
@@ -153,9 +223,10 @@ class AttributeErrorABC(ValueError, metaclass=ABCMeta):
 	):
 		msg = self._format_message(name, specifier, node, msg, msg_details, self._formatter_cls_extra())
 		super(AttributeErrorABC, self).__init__(msg)
-		self.name = name
-		self.specifier = specifier
-		self.node = node
+		self.name: str = name
+		self.specifier: _O[AttributeTypeSpecifier] = specifier
+		self.node: _O[hou.Node] = node
+		self.message: _O[str] = msg
 
 	@classmethod
 	def _format_message(
@@ -166,7 +237,7 @@ class AttributeErrorABC(ValueError, metaclass=ABCMeta):
 		msg: str = None,
 		msg_details: str = None,
 		cls_extra: str = '',
-	) -> _t.Optional[str]:
+	) -> _O[str]:
 		if msg is not None:
 			return msg if not msg_details else '{}\n{}'.format(msg, msg_details)
 		assert msg is None
@@ -182,7 +253,7 @@ class AttributeErrorABC(ValueError, metaclass=ABCMeta):
 			attr=specifier.formatted(uppercase_first_char=False),
 			nm='' if not name else ' {}'.format(repr(name)),
 			whats_wrong=cls._formatter_whats_wrong_with_attr(),
-			on_node='' if not node else ' on node: {}'.format(repr(node)),
+			on_node='' if not node else ' on input for node: {}'.format(repr(node)),
 			details='' if not msg_details else '\n{}'.format(msg_details),
 			cls_extra=cls_extra
 		)
@@ -304,7 +375,7 @@ def _find_f__args_pre_check(
 
 def _find_verify_main_f__no_args_check(
 	name: str, clean_name: str,
-	specifier: _t.Optional[AttributeTypeSpecifier], valid_specifier: AttributeTypeSpecifier,
+	specifier: _O[AttributeTypeSpecifier], valid_specifier: AttributeTypeSpecifier,
 	include_private: bool,
 	node: hou.SopNode,
 	geo: hou.Geometry,
