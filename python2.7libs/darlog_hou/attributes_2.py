@@ -304,7 +304,7 @@ class _MultiAttributeErrorABC(AttributeErrorABC, metaclass=ABCMeta):
 		attributes = self.attributes
 		if not attributes:
 			return ''
-		lines: _t.List[str] = [repr(x).strip() for x in attributes]
+		lines: _t.List[str] = [repr_attr(x) for x in attributes]
 		if len(lines) == 1:
 			return ' {}'.format(lines[0])
 		lines_bullet_points = ('- {}'.format(x) for x in lines)
@@ -546,7 +546,7 @@ def find_or_create(
 	return geo.addAttrib(attr_cls, clean_name, default, transform_as_normal, create_local_variable)
 
 
-_re_valid_attr_name = _re_compile('[a-zA-Z_]+[a-zA-Z_0-9]*')
+_re_valid_attr_name_match = _re_compile('[a-zA-Z_]+[a-zA-Z_0-9]*').search
 
 
 def clean_attr_name(name: str) -> str:
@@ -557,5 +557,36 @@ def clean_attr_name(name: str) -> str:
 
 	Might return an empty string, but always a string anyway.
 	"""
-	match = _re_valid_attr_name.search(name)
+	match = _re_valid_attr_name_match(name)
 	return '' if not match else match.group(0)
+
+_float_nice_datatypes_by_size = {
+	1: "Float",
+	2: "Vector-2",
+	3: "Vector-3",
+	4: "Vector-4",
+	9: "Matrix-3",
+	16: "Matrix-4",
+}
+
+def repr_attr_datatype(attr: hou.Attrib) -> str:
+	"""Get nice human-readable representation of an attribute's datatype."""
+	assert isinstance(attr, hou.Attrib), "An instance of <hou.Attrib> expected. Got: {}".format(repr(attr))
+	sz: int = attr.size()
+	dt: _t_dt = attr.dataType()
+	is_array: str = ' [array]' if attr.isArrayType() else ''
+	if dt != hou.attribData.Float:
+		return "{dt}{sz}{arr}".format(dt=dt.name(), sz='' if sz < 2 else "-{}".format(sz), arr=is_array)
+
+	float_dt_str = _float_nice_datatypes_by_size.get(sz)
+	if float_dt_str is None:
+		return "Float-{sz}{arr}".format(sz=sz, arr=is_array)
+	return "{f_dt}{arr}".format(f_dt=float_dt_str, arr=is_array)
+
+def repr_attr(attr: hou.Attrib) -> str:
+	"""Get attribute formatted like: `Global (Vector-3 [array]) 'attr_nm'`."""
+	if not isinstance(attr, hou.Attrib):
+		return repr(attr)
+	return "{_cls} ({dt_str}) {nm}".format(
+		_cls=attr.type().name(), dt_str=repr_attr_datatype(attr), nm=repr(attr.name())
+	)
