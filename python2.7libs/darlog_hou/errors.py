@@ -193,7 +193,11 @@ def get_error_message(error, default=None):  # type: (_t_Exception, _T) -> _t.Un
 		msg = default
 
 	try:
-		return msg() if callable(msg) else msg
+		if callable(msg):
+			msg = msg()
+		if not(msg is None or isinstance(msg, str)):
+			msg = str(msg)
+		return msg
 	except any_exception:
 		return default
 
