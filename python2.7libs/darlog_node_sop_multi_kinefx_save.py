@@ -27,6 +27,7 @@ renames_dict_attr_nm = "renames"
 
 
 def detect_if_do_extract_dir_attr(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
+	"""Set detail flag-attrib, which identifies if we need to restore (extract) base-dir attr."""
 	do_restore = 0
 	try:
 		find_verify(fbx_dir_attr_nm, SPECIFIER_DET_STR, node=asset_node, geo=in_geo, geo_from_input=0, node_in_error=False)
@@ -39,10 +40,21 @@ def detect_if_do_extract_dir_attr(asset_node: hou.SopNode, in_geo: hou.Geometry,
 	out_geo.setGlobalAttribValue(do_dir_attr_nm, do_restore)
 
 
-def detect_base_dir_path_and_renames(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
-	path_attr = find_verify(fbx_path_attr_nm, SPECIFIER_PRIM_STR, node=asset_node, geo=in_geo, geo_from_input=0, node_in_error=False)
+def _get_fbx_path_strings(asset_node: hou.SopNode, in_geo: hou.Geometry) -> _t.Tuple[str, ...]:
+	path_attr = find_verify(
+		fbx_path_attr_nm, SPECIFIER_PRIM_STR, node=asset_node, geo=in_geo, geo_from_input=0, node_in_error=False
+	)
 	fbx_paths: _t.Tuple[str, ...] = path_attr.strings()
-	fbx_paths = tuple(sorted(list(set(fbx_paths))))
+	return tuple(sorted(list(set(fbx_paths))))
+
+
+def _is_fbx_sub_path_invalid(fbx_path: str) -> bool:
+	return (not fbx_path) or fbx_path.startswith(hip_pattern_slash) or fbx_path.startswith(hip_pattern_braces)
+
+
+def detect_base_dir_path_and_renames(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
+	"""When extracting base-dir, detect it (in meta-network) + plan renames of the actual fbx-path attr."""
+	fbx_paths = _get_fbx_path_strings(asset_node, in_geo)
 	try:
 		base_dir_raw = str(commonpath(fbx_paths))
 	except any_exception as e:
@@ -70,23 +82,34 @@ def detect_base_dir_path_and_renames(asset_node: hou.SopNode, in_geo: hou.Geomet
 	invalid_renames: _t.List[_t.Tuple[str, str]] = [
 		(ren_from, ren_to)
 		for ren_from, ren_to in renames.items()
-		if not ren_to or ren_to.startswith(hip_pattern_slash) or ren_to.startswith(hip_pattern_braces)
+		if _is_fbx_sub_path_invalid(ren_to)
 	]
 	if invalid_renames:
-		if len(invalid_renames) == 1:
-			r_from, r_to = invalid_renames[0]
-			raise hou.NodeError(
-				"Invalid output sub-path:\n{} (from {})".format(repr(r_to), repr(r_from))
-			)
-			return
 		wrong_rename_strings = [
 			" {} (from {})".format(repr(ren_to), repr(ren_from))
 			for ren_from, ren_to in invalid_renames
 		]
-		msg = "Invalid output sub-paths:\n{}".format("\n".join(wrong_rename_strings))
+		msg = "Invalid output sub-path{s}:\n{_list}".format(
+			s="" if len(invalid_renames) < 2 else "s",
+			_list="\n".join(wrong_rename_strings)
+		)
 		raise hou.NodeError(msg)
 		return
 
 	out_geo.setGlobalAttribValue(fbx_dir_attr_nm, base_dir_no_slash)
 	out_geo.setGlobalAttribValue(renames_dict_attr_nm, renames)
 
+
+def verify_relative_fbx_paths(asset_node: hou.SopNode, in_geo: hou.Geometry):
+	"""Check if fbx paths are ready to be used by the actual asset's network."""
+	fbx_paths = _get_fbx_path_strings(asset_node, in_geo)
+	invalid_paths = [x for x in fbx_paths if _is_fbx_sub_path_invalid(x)]
+	if not invalid_paths:
+		return
+
+	msg = "Invalid output sub-path{s}:\n{_list}".format(
+		s="" if len(invalid_paths) < 2 else "s",
+		_list="\n".join(" {}".format(repr(x)) for x in invalid_paths)
+	)
+	raise hou.NodeError(msg)
+	return
