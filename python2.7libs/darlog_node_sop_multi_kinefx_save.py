@@ -8,6 +8,7 @@ __author__ = 'Lex Darlog (DRL)'
 import typing as _t
 
 from os.path import commonpath
+from sys import platform
 
 import hou
 
@@ -24,6 +25,7 @@ fbx_path_attr_nm = "fbx_path"
 fbx_dir_attr_nm = "fbx_base_path"
 do_dir_attr_nm = "do_extract_base_path"
 renames_dict_attr_nm = "renames"
+meta_do_attr_nm = "_do"
 
 
 def detect_if_do_extract_dir_attr(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
@@ -49,7 +51,46 @@ def _get_fbx_path_strings(asset_node: hou.SopNode, in_geo: hou.Geometry) -> _t.T
 
 
 def _is_fbx_sub_path_invalid(fbx_path: str) -> bool:
-	return (not fbx_path) or fbx_path.startswith(hip_pattern_slash) or fbx_path.startswith(hip_pattern_braces)
+	assert isinstance(fbx_path, str), "Internal error: fbx-path isn't a string: {}".format(repr(fbx_path))
+	return (
+		(not fbx_path) or fbx_path.lower() == '.fbx'
+		or fbx_path.startswith(hip_pattern_slash) or fbx_path.startswith(hip_pattern_braces)
+	)
+
+
+def _clean_fbx_path(fbx_path: str) -> str:
+	assert isinstance(fbx_path, str), "Internal error: fbx-path isn't a string: {}".format(repr(fbx_path))
+	clean = fbx_path.replace(win_slash, '/').lstrip('/')
+	return clean if clean.lower().endswith('.fbx') else '{}.fbx'.format(clean)
+
+
+class CleanPathDetectorAwareOfWindows:
+	"""
+	Callable (function-like) class, which does the same as ``_clean_fbx_path()``,
+	but also caches previous clean paths, and for subsequent calls with the same paths with different case,
+	returns the same case as before.
+
+	Thus, on Windows filesystems, the same ACTUAL file paths would be turned into the same STRINGS, too.
+	"""
+
+	def __init__(self):
+		self.lowercase_to_cached_case: _t.Dict[str, str] = dict()
+
+	def __call__(self, fbx_path: str) -> str:
+		clean = _clean_fbx_path(fbx_path)
+		clean_lowercase = clean.lower()
+		_cached = self.lowercase_to_cached_case
+		if clean_lowercase in _cached:
+			return _cached[clean_lowercase]
+		_cached[clean_lowercase] = clean
+		return clean
+
+	@classmethod
+	def get_platform_specific_func(cls):
+		"""Get either the class instance or ``_clean_fbx_path()`` function, depending on platform."""
+		if platform.lower().startswith('win'):
+			return cls()
+		return _clean_fbx_path
 
 
 def detect_base_dir_path_and_renames(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
@@ -74,8 +115,9 @@ def detect_base_dir_path_and_renames(asset_node: hou.SopNode, in_geo: hou.Geomet
 		base_dir_with_slash = "{}/".format(base_dir_with_slash)
 	shared_prefix_n = len(base_dir_with_slash)
 
+	clean_path_func = CleanPathDetectorAwareOfWindows.get_platform_specific_func()
 	renames: _t.Dict[str, str] = {
-		pth: pth[shared_prefix_n:].replace(win_slash, '/').lstrip('/')
+		pth: clean_path_func(pth[shared_prefix_n:])
 		for pth in fbx_paths
 	}
 
@@ -97,6 +139,27 @@ def detect_base_dir_path_and_renames(asset_node: hou.SopNode, in_geo: hou.Geomet
 		return
 
 	out_geo.setGlobalAttribValue(fbx_dir_attr_nm, base_dir_no_slash)
+	out_geo.setGlobalAttribValue(renames_dict_attr_nm, renames)
+
+
+def detect_fbx_path_cleanup_renames(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
+	"""
+	If we don't extract base-dir path, we still need to enforce:
+	- fbx paths to have unix slashes
+	- they don't have any leading slashes
+
+	This function does that, by detecting and planning such renames.
+	"""
+	fbx_paths = _get_fbx_path_strings(asset_node, in_geo)
+
+	clean_path_func = CleanPathDetectorAwareOfWindows.get_platform_specific_func()
+	renames: _t.Dict[str, str] = dict()
+	for fbx in fbx_paths:
+		clean = clean_path_func(fbx)
+		if fbx != clean:
+			renames[fbx] = clean
+
+	out_geo.setGlobalAttribValue(meta_do_attr_nm, 1 if renames else 0)
 	out_geo.setGlobalAttribValue(renames_dict_attr_nm, renames)
 
 
