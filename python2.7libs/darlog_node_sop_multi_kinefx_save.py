@@ -7,7 +7,7 @@ __author__ = 'Lex Darlog (DRL)'
 
 import typing as _t
 
-from os.path import commonpath
+from os.path import commonpath, abspath
 from sys import platform
 
 import hou
@@ -26,6 +26,11 @@ fbx_dir_attr_nm = "fbx_base_path"
 do_dir_attr_nm = "do_extract_base_path"
 renames_dict_attr_nm = "renames"
 meta_do_attr_nm = "_do"
+meta_old_dir_attr_nm = "old_dir"
+meta_new_dir_attr_nm = "new_dir"
+
+
+hou_expand_string = hou.text.expandString  # type: _t.Callable[[_t.AnyStr], _t.AnyStr]
 
 
 def detect_if_do_extract_dir_attr(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
@@ -176,3 +181,44 @@ def verify_relative_fbx_paths(asset_node: hou.SopNode, in_geo: hou.Geometry):
 	)
 	raise hou.NodeError(msg)
 	return
+
+
+def _make_dir_with_trailing_slash(raw_path: str) -> str:
+	"""Might return '' if raw path also was empty. Otherwise, any non-empty string ends with '/'."""
+	raw_path = hou_expand_string(raw_path).replace(win_slash, '/')
+	if not raw_path:
+		return ""
+	dir_no_slash = raw_path.rstrip('/')
+	if not dir_no_slash:
+		# The only way this could be is if raw path is made purely of '/' chars
+		return '/'
+	assert bool(dir_no_slash)
+
+	dir_no_slash = abspath(dir_no_slash).replace(win_slash, '/').rstrip('/')
+	if not dir_no_slash:
+		# something REALLY weird happened: we got an empty string after generating an absolute path
+		raise ValueError("Invalid path: {}".format(repr(raw_path)))
+		return ""
+	return "{}/".format(dir_no_slash)
+
+
+def prepare_old_and_new_base_dir_attrs(in_geo: hou.Geometry, out_geo: hou.Geometry, new_dir: str):
+	try:
+		old_dir: str = in_geo.stringAttribValue(fbx_dir_attr_nm)
+		old_dir = _make_dir_with_trailing_slash(old_dir)
+		new_dir = _make_dir_with_trailing_slash(new_dir)
+		out_geo.setGlobalAttribValue(meta_old_dir_attr_nm, old_dir)
+		out_geo.setGlobalAttribValue(meta_new_dir_attr_nm, new_dir)
+	except any_exception as e:
+		msg = get_error_message(e, default=str(e))
+		raise hou.NodeError(msg)
+		return
+
+
+def verify_out_dir_path(in_geo: hou.Geometry, error_if_same_out_dir):
+	new_dir: str = in_geo.stringAttribValue(meta_new_dir_attr_nm)
+	if not new_dir:
+		raise hou.NodeError("Export directory must be specified")
+		return
+	if error_if_same_out_dir and in_geo.stringAttribValue(meta_old_dir_attr_nm) == new_dir:
+		raise hou.NodeError("Trying to export into the same directory FBX files are loaded from:\n{}\n".format(new_dir))

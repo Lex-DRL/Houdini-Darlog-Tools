@@ -29,8 +29,7 @@ fbx_name_attr = 'fbx_name'
 
 required_prim_str_attribs = (fbx_path_attr, fbx_name_attr)
 
-# noinspection PyUnresolvedReferences
-hou_expand_string = hou.expandString  # type: _t.Callable[[_t.AnyStr], _t.AnyStr]
+hou_expand_string = hou.text.expandString  # type: _t.Callable[[_t.AnyStr], _t.AnyStr]
 
 
 def actual_dir_path_with_trailing_slash(path_with_hou_variables, dir_name='Export dir'):  # type: (str, str) -> str
