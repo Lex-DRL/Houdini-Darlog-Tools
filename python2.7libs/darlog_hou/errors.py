@@ -151,9 +151,11 @@ def raise_errors_as(
 ):
 	"""Func-decorator which re-raises error types specified in `type_from` as another error type, `type_to`."""
 	def decorator(f: _t.Callable):
-		assert issubclass(type_to, any_base_exception), "Not an exception type to raise: {}".format(repr(type_to))
+		assert isinstance(type_to, type) and issubclass(type_to, any_base_exception), "Not an exception type to raise: {}".format(repr(type_to))
 		caught_types: _t.Tuple[_t.Type[_T_Exception], ...] = (
-			(type_from,) if issubclass(type_from, any_base_exception) else tuple(type_from)
+			(type_from,)
+			if isinstance(type_from, type) and issubclass(type_from, any_base_exception)
+			else tuple(type_from)
 		)
 		if len(caught_types) == 1 and caught_types[0] is type_to:
 			# A user has done something stupid: they try to catch and re-raise the same type.
@@ -167,7 +169,9 @@ def raise_errors_as(
 			x for x in caught_types if x is not type_to
 		)
 		assert (
-			caught_types and isinstance(caught_types, tuple) and all(issubclass(x, any_base_exception) for x in caught_types)
+			caught_types and isinstance(caught_types, tuple) and all(
+				isinstance(x, type) and issubclass(x, any_base_exception) for x in caught_types
+			)
 		), "Not valid original exception types: {}".format(repr(caught_types))
 
 		@_wraps(f)
@@ -219,6 +223,9 @@ def get_error_message(error, default=None):  # type: (_t_Exception, _T) -> _t.Un
 		msg = error.message
 	except any_exception:
 		pass
+
+	if isinstance(error, OSError):
+		msg = format_os_error(error, use_tabs=False)
 
 	if msg is None:
 		try:
