@@ -13,7 +13,10 @@ from sys import platform
 import hou
 
 from darlog_hou.attributes_2 import find_verify, SPECIFIER_DET_STR, SPECIFIER_PRIM_STR, AttributeNotFoundError
-from darlog_hou.errors import get_error_message, any_exception
+from darlog_hou.errors import get_error_message, any_exception, raise_errors_as
+
+
+_raise_as_hou_error: _t.Callable[[_t.Callable], _t.Callable] = raise_errors_as(type_to=hou.NodeError)
 
 win_slash = 'q\\q'[1]  # mindfuck to workaround Houdini bug when it sometimes can't just create a single backslash char
 hip_pattern = "".join(['$', 'HIP'])  # Houdini expands it to the actual path, so - this workaround
@@ -33,6 +36,7 @@ meta_new_dir_attr_nm = "new_dir"
 hou_expand_string = hou.text.expandString  # type: _t.Callable[[_t.AnyStr], _t.AnyStr]
 
 
+@_raise_as_hou_error
 def detect_if_do_extract_dir_attr(asset_node: hou.SopNode, in_geo: hou.Geometry, out_geo: hou.Geometry):
 	"""Set detail flag-attrib, which identifies if we need to restore (extract) base-dir attr."""
 	do_restore = 0
@@ -40,10 +44,6 @@ def detect_if_do_extract_dir_attr(asset_node: hou.SopNode, in_geo: hou.Geometry,
 		find_verify(fbx_dir_attr_nm, SPECIFIER_DET_STR, node=asset_node, geo=in_geo, geo_from_input=0, node_in_error=False)
 	except AttributeNotFoundError:
 		do_restore = 1
-	except any_exception as e:
-		msg = get_error_message(e, default=str(e))
-		raise hou.NodeError(msg)
-		return
 	out_geo.setGlobalAttribValue(do_dir_attr_nm, do_restore)
 
 
@@ -180,7 +180,6 @@ def verify_relative_fbx_paths(asset_node: hou.SopNode, in_geo: hou.Geometry):
 		_list="\n".join(" {}".format(repr(x)) for x in invalid_paths)
 	)
 	raise hou.NodeError(msg)
-	return
 
 
 def _make_dir_with_trailing_slash(raw_path: str) -> str:
@@ -202,17 +201,13 @@ def _make_dir_with_trailing_slash(raw_path: str) -> str:
 	return "{}/".format(dir_no_slash)
 
 
+@_raise_as_hou_error
 def prepare_old_and_new_base_dir_attrs(in_geo: hou.Geometry, out_geo: hou.Geometry, new_dir: str):
-	try:
-		old_dir: str = in_geo.stringAttribValue(fbx_dir_attr_nm)
-		old_dir = _make_dir_with_trailing_slash(old_dir)
-		new_dir = _make_dir_with_trailing_slash(new_dir)
-		out_geo.setGlobalAttribValue(meta_old_dir_attr_nm, old_dir)
-		out_geo.setGlobalAttribValue(meta_new_dir_attr_nm, new_dir)
-	except any_exception as e:
-		msg = get_error_message(e, default=str(e))
-		raise hou.NodeError(msg)
-		return
+	old_dir: str = in_geo.stringAttribValue(fbx_dir_attr_nm)
+	old_dir = _make_dir_with_trailing_slash(old_dir)
+	new_dir = _make_dir_with_trailing_slash(new_dir)
+	out_geo.setGlobalAttribValue(meta_old_dir_attr_nm, old_dir)
+	out_geo.setGlobalAttribValue(meta_new_dir_attr_nm, new_dir)
 
 
 def verify_out_dir_path(in_geo: hou.Geometry, error_if_same_out_dir):

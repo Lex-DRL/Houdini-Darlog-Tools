@@ -1,9 +1,13 @@
 # encoding: utf-8
 """
 """
-
+import hou
 import hou as _hou
 
+import typing as _t
+from typing import Optional as _O, Union as _U
+
+from functools import wraps as _wraps
 from itertools import chain as _chain
 import errno as _errno
 import os as _os
@@ -11,16 +15,11 @@ from traceback import format_exception as _format_exception
 
 from darlog_hou.py23 import str_format as _format
 
-try:
-	import typing as _t
-
-	# noinspection PyTypeHints,PyShadowingBuiltins
-	_T = _t.TypeVar('T')
-	_t_Exception = _t.Union[Exception, _hou.Error]
-	# noinspection PyTypeHints
-	_T_Exception = _t.TypeVar('T_Exception', bound=_t_Exception)
-except ImportError:
-	pass
+# noinspection PyTypeHints,PyShadowingBuiltins
+_T = _t.TypeVar('T')
+_t_Exception = _t.Union[Exception, _hou.Error]
+# noinspection PyTypeHints
+_T_Exception = _t.TypeVar('T_Exception', bound=_t_Exception)
 
 # noinspection PyBroadException
 try:
@@ -116,9 +115,7 @@ def catch(
 	passing either error message or error itself to it.
 	"""
 
-	def wrap(
-		f  # type: _t.Callable
-	):
+	def decorator(f: _t.Callable):
 		def catch_and_do_nothing(*args, **kwargs):
 			try:
 				return f(*args, **kwargs)
@@ -140,15 +137,55 @@ def catch(
 		new_f = catch_message if callable(with_message) else (
 			catch_error if callable(with_error) else catch_and_do_nothing
 		)
-		try:
-			new_f.__name__ = f.__name__
-		except any_exception:
-			pass
+		return _wraps(f)(new_f)  # Manually apply `@_wraps(f)` decorator to the one function chosen above
+
+	if func is None:
+		return decorator
+	return decorator(func)
+
+
+def raise_errors_as(
+	func: _t.Callable = None, *,
+	type_to: _t.Type[_T_Exception] = hou.NodeError,
+	type_from: _U[_t.Type[_T_Exception], _t.Tuple[_t.Type[_T_Exception], ...]] = any_exception,
+):
+	"""Func-decorator which re-raises error types specified in `type_from` as another error type, `type_to`."""
+	def decorator(f: _t.Callable):
+		assert issubclass(type_to, any_base_exception), "Not an exception type to raise: {}".format(repr(type_to))
+		caught_types: _t.Tuple[_t.Type[_T_Exception], ...] = (
+			(type_from,) if issubclass(type_from, any_base_exception) else tuple(type_from)
+		)
+		if len(caught_types) == 1 and caught_types[0] is type_to:
+			# A user has done something stupid: they try to catch and re-raise the same type.
+			# Just return the original function untouched:
+			return f
+
+		# To avoid unnecessary type casts, we need to exclude type_to from caught_types.
+		# We DO NOT want to consider subclasses in any direction: a user might want
+		# to explicitly turn a base exception class to a child one or vice versa.
+		caught_types = tuple(
+			x for x in caught_types if x is not type_to
+		)
+		assert (
+			caught_types and isinstance(caught_types, tuple) and all(issubclass(x, any_base_exception) for x in caught_types)
+		), "Not valid original exception types: {}".format(repr(caught_types))
+
+		@_wraps(f)
+		def new_f(*args, **kwargs):
+			try:
+				return f(*args, **kwargs)
+			except caught_types as e:
+				if type(e) is type_to:
+					raise e
+					return
+				msg = get_error_message(e, default=str(e))
+				raise type_to(msg)
+
 		return new_f
 
 	if func is None:
-		return wrap
-	return wrap(func)
+		return decorator
+	return decorator(func)
 
 
 def catch_and_return_error_message(
