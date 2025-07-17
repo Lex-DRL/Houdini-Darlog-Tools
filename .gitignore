@@ -117,9 +117,5 @@ venv.bak/
 # 	Repo-specific
 # =========================================================================== #
 
-# This dir must be made a softlink:
-/python3.7libs
-/python3.*libs
-
 # Debug/test scripts:
-/python?.*libs/test*
+/scripts/python/test*
