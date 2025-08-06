@@ -20,6 +20,8 @@ _T = _t.TypeVar('T')
 _t_Exception = _t.Union[Exception, _hou.Error]
 # noinspection PyTypeHints
 _T_Exception = _t.TypeVar('T_Exception', bound=_t_Exception)
+_t_t_exc = _t.Tuple[_t.Type[_T_Exception], ...]
+_t_exc_arg = _U[_t.Type[_T_Exception], _t_t_exc]
 
 # noinspection PyBroadException
 try:
@@ -88,7 +90,7 @@ def sop_input_geo(node, index=0, error_name=''):  # type: (...) -> _hou.Geometry
 def catch_error_message(
 	func,  # type: _t.Callable
 	default=None,  # type: _T
-	error_types=any_exception  # type: _t.Tuple[_t.Type[_T_Exception], ...]
+	error_types=any_exception  # type: _t_t_exc
 ):  # type: (...) -> _t.Tuple[_t.Optional[_T_Exception], _t.Union[_T, _t.AnyStr]]
 	"""
 	Run the function, catch exception if raised and return two values:
@@ -108,7 +110,7 @@ def catch(
 	with_message=None,  # type: _t.Optional[_t.Callable[[str, ...], _T]]
 	with_error=None,  # type: _t.Optional[_t.Callable[[_T_Exception, ...], _T]]
 	message_default='',  # type: _t.Any
-	error_types=any_exception  # type: _t.Tuple[_t.Type[_T_Exception], ...]
+	error_types=any_exception  # type: _t_t_exc
 ):
 	"""
 	Convenient decorator catching any of the provided exception types and calling an alternative function instead,
@@ -147,35 +149,57 @@ def catch(
 def raise_errors_as(
 	func: _t.Callable = None, *,
 	type_to: _t.Type[_T_Exception] = hou.NodeError,
-	type_from: _U[_t.Type[_T_Exception], _t.Tuple[_t.Type[_T_Exception], ...]] = any_exception,
+	type_from: _t_exc_arg = any_exception,
+	not_type_from: _O[_t_exc_arg] = None
 ):
 	"""Func-decorator which re-raises error types specified in `type_from` as another error type, `type_to`."""
 	def decorator(f: _t.Callable):
-		assert isinstance(type_to, type) and issubclass(type_to, any_base_exception), "Not an exception type to raise: {}".format(repr(type_to))
-		caught_types: _t.Tuple[_t.Type[_T_Exception], ...] = (
-			(type_from,)
-			if isinstance(type_from, type) and issubclass(type_from, any_base_exception)
-			else tuple(type_from)
+		assert isinstance(type_to, type) and issubclass(type_to, any_base_exception), (
+			"Not an exception type to raise: {}".format(repr(type_to))
 		)
-		if len(caught_types) == 1 and caught_types[0] is type_to:
-			# A user has done something stupid: they try to catch and re-raise the same type.
-			# Just return the original function untouched:
+		
+		def _cleanup_type_from(exc_type_or_iter_or_none: _O[_t_exc_arg], not_exc_suffix: str = ' to catch') -> _t_t_exc:
+			res = exc_type_or_iter_or_none
+			if res is None:
+				res = tuple()
+			res: _t_t_exc = (
+				(res, )
+				if isinstance(res, type) and issubclass(res, any_base_exception)
+				else tuple(res)
+			)
+			# To avoid unnecessary type casts, we need to exclude type_to from caught_types.
+			# We DO NOT want to consider subclasses in any direction: a user might want
+			# to explicitly turn a base exception class to a child one or vice versa.
+			res = tuple(set(x for x in res if x is not type_to))  # Also, remove any duplicates
+			for exc in res:
+				assert isinstance(exc, type) and issubclass(exc, any_base_exception), (
+					"Not an exception type{}: {}".format(not_exc_suffix, repr(exc))
+				)
+			return res
+
+		not_caught_types: _t_t_exc = _cleanup_type_from(not_type_from, '')
+		not_caught_types_set = set(not_caught_types)
+		caught_types: _t_t_exc = _cleanup_type_from(type_from)
+		caught_types = tuple(x for x in caught_types if x not in not_caught_types_set)
+		
+		if not caught_types:
+			# A user has done something stupid: they probably try to catch and re-raise the same type.
+			# Just return the original function intact:
 			return f
 
-		# To avoid unnecessary type casts, we need to exclude type_to from caught_types.
-		# We DO NOT want to consider subclasses in any direction: a user might want
-		# to explicitly turn a base exception class to a child one or vice versa.
-		caught_types = tuple(
-			x for x in caught_types if x is not type_to
-		)
+		assert (
+			isinstance(not_caught_types, tuple) and all(
+				isinstance(x, type) and issubclass(x, any_base_exception) for x in not_caught_types
+			)
+		), "Not valid excluded exception types: {}".format(repr(not_caught_types))
+
 		assert (
 			caught_types and isinstance(caught_types, tuple) and all(
 				isinstance(x, type) and issubclass(x, any_base_exception) for x in caught_types
 			)
 		), "Not valid original exception types: {}".format(repr(caught_types))
 
-		@_wraps(f)
-		def new_f(*args, **kwargs):
+		def new_f_no_exclusions(*args, **kwargs):
 			try:
 				return f(*args, **kwargs)
 			except caught_types as e:
@@ -185,7 +209,21 @@ def raise_errors_as(
 				msg = get_error_message(e, default=str(e))
 				raise type_to(msg)
 
-		return new_f
+		def new_f_with_exclusions(*args, **kwargs):
+			try:
+				return f(*args, **kwargs)
+			except not_caught_types as e:
+				raise e
+			except caught_types as e:
+				if type(e) is type_to:
+					raise e
+					return
+				msg = get_error_message(e, default=str(e))
+				raise type_to(msg)
+
+		new_f = new_f_with_exclusions if not_caught_types else new_f_no_exclusions
+
+		return _wraps(f)(new_f)
 
 	if func is None:
 		return decorator
