@@ -557,8 +557,23 @@ def clean_attr_name(name: str) -> str:
 
 	Might return an empty string, but always a string anyway.
 	"""
+	if not isinstance(name, str):
+		raise TypeError(f"Not a string: {name!r}")
 	match = _re_valid_attr_name_match(name)
 	return '' if not match else match.group(0)
+
+
+_re_valid_attr_name_match_exact = _re_compile('[a-zA-Z_]+[a-zA-Z_0-9]*$').match
+
+
+def is_valid_attr_name(name: str, strip: bool = False) -> bool:
+	"""Is the provided string a valid attribute name?"""
+	if not isinstance(name, str):
+		return False
+	if strip:
+		name = name.strip()
+	return bool(_re_valid_attr_name_match_exact(name))
+
 
 _float_nice_datatypes_by_size = {
 	1: "Float",
